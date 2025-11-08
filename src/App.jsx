@@ -10,12 +10,19 @@ import {
 } from "react-router-dom";
 import axios from "axios";
 
-// Only importing files that exist
+// Layout & Auth
 import LoginModal from "./components/LoginModal";
 import Header from "./components/Header";
 import FooterFixed from "./components/FooterFixed";
+
+// Dashboards (Correct Paths)
 import AdminDashboard from "./components/AdminDashboard";
+import CustomerDashboard from "./components/CustomerDashboard";
+
+// Other Components
 import VehicleDetails from "./components/VehicleDetails";
+
+// Masters
 import CustomerMaster from "./components/masters/CustomerMaster";
 import VehicleTypeMaster from "./components/masters/VehicleTypeMaster";
 import VcuHmiMaster from "./components/masters/VcuHmiMaster";
@@ -40,8 +47,11 @@ function App() {
     if (user) {
       setShowLogin(false);
       axios.defaults.headers.common["Authorization"] = `Bearer ${user.token}`;
-      if (location.pathname === "/" || location.pathname === "/login") {
-        navigate("/admin", { replace: true });
+
+      const isLoginPage = location.pathname === "/" || location.pathname === "/login";
+      if (isLoginPage) {
+        const redirectTo = user.role === "admin" ? "/admin" : "/dashboard";
+        navigate(redirectTo, { replace: true });
       }
     } else {
       setShowLogin(true);
@@ -57,7 +67,9 @@ function App() {
     setUser(newUser);
     localStorage.setItem("user", JSON.stringify(newUser));
     setShowLogin(false);
-    navigate("/admin", { replace: true });
+
+    const redirectTo = role === "admin" ? "/admin" : "/dashboard";
+    navigate(redirectTo, { replace: true });
   };
 
   const handleLogout = () => {
@@ -68,17 +80,32 @@ function App() {
     navigate("/", { replace: true });
   };
 
+  // Protected Layout with Role Check
+  const ProtectedLayout = ({ children, requiredRole }) => {
+    if (!user) return <Navigate to="/" replace />;
+    if (requiredRole && user.role !== requiredRole) {
+      return <Navigate to={user.role === "admin" ? "/admin" : "/dashboard"} replace />;
+    }
+    return (
+      <div className="min-h-screen flex flex-col bg-[#0b0f17]">
+        <Header user={user} onLogout={handleLogout} />
+        <main className="flex-grow">{children}</main>
+        <FooterFixed />
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen">
       <Routes>
-        {/* Login / root */}
+        {/* Root / Login */}
         <Route
           path="/"
           element={
             showLogin || !user ? (
               <LoginModal setShowLogin={setShowLogin} onSubmit={handleLogin} />
             ) : (
-              <Navigate to="/admin" replace />
+              <Navigate to={user.role === "admin" ? "/admin" : "/dashboard"} replace />
             )
           }
         />
@@ -87,111 +114,78 @@ function App() {
         <Route
           path="/admin"
           element={
-            user ? (
-              <div className="min-h-screen flex flex-col bg-[#0b0f17]">
-                <Header user={user} onLogout={handleLogout} />
-                <main className="flex-grow">
-                  <AdminDashboard user={user} />
-                </main>
-                <FooterFixed />
-              </div>
-            ) : (
-              <Navigate to="/" replace />
-            )
+            <ProtectedLayout requiredRole="admin">
+              <AdminDashboard />
+            </ProtectedLayout>
           }
         />
 
-        {/* Vehicle details */}
+        {/* Customer Dashboard */}
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedLayout requiredRole="customer">
+              <CustomerDashboard />
+            </ProtectedLayout>
+          }
+        />
+
+        {/* Vehicle Details (both roles) */}
         <Route
           path="/vehicle/:id"
           element={
-            user ? (
-              <div className="min-h-screen flex flex-col bg-[#0b0f17]">
-                <Header user={user} onLogout={handleLogout} />
-                <main className="flex-grow">
-                  <VehicleDetails user={user} />
-                </main>
-                <FooterFixed />
-              </div>
-            ) : (
-              <Navigate to="/" replace />
-            )
+            <ProtectedLayout>
+              <VehicleDetails />
+            </ProtectedLayout>
           }
         />
 
-        {/* Masters */}
+        {/* Masters — Admin Only */}
         <Route
           path="/masters/customers"
           element={
-            user ? (
-              <div className="min-h-screen flex flex-col bg-[#0b0f17]">
-                <Header user={user} onLogout={handleLogout} />
-                <main className="flex-grow">
-                  <CustomerMaster />
-                </main>
-                <FooterFixed />
-              </div>
-            ) : (
-              <Navigate to="/" replace />
-            )
+            <ProtectedLayout requiredRole="admin">
+              <CustomerMaster />
+            </ProtectedLayout>
           }
         />
 
         <Route
           path="/masters/vehicle-types"
           element={
-            user ? (
-              <div className="min-h-screen flex flex-col bg-[#0b0f17]">
-                <Header user={user} onLogout={handleLogout} />
-                <main className="flex-grow">
-                  <VehicleTypeMaster />
-                </main>
-                <FooterFixed />
-              </div>
-            ) : (
-              <Navigate to="/" replace />
-            )
+            <ProtectedLayout requiredRole="admin">
+              <VehicleTypeMaster />
+            </ProtectedLayout>
           }
         />
 
         <Route
           path="/masters/vcu-hmi"
           element={
-            user ? (
-              <div className="min-h-screen flex flex-col bg-[#0b0f17]">
-                <Header user={user} onLogout={handleLogout} />
-                <main className="flex-grow">
-                  <VcuHmiMaster />
-                </main>
-                <FooterFixed />
-              </div>
-            ) : (
-              <Navigate to="/" replace />
-            )
+            <ProtectedLayout requiredRole="admin">
+              <VcuHmiMaster />
+            </ProtectedLayout>
           }
         />
 
         <Route
           path="/masters/vehicles"
           element={
-            user ? (
-              <div className="min-h-screen flex flex-col bg-[#0b0f17]">
-                <Header user={user} onLogout={handleLogout} />
-                <main className="flex-grow">
-                  <VehicleMaster />
-                </main>
-                <FooterFixed />
-              </div>
-            ) : (
-              <Navigate to="/" replace />
-            )
+            <ProtectedLayout requiredRole="admin">
+              <VehicleMaster />
+            </ProtectedLayout>
           }
         />
 
         {/* Catch-all */}
         <Route
           path="*"
-          element={<Navigate to={user ? "/admin" : "/"} replace />}
+          element={
+            <Navigate
+              to={user ? (user.role === "admin" ? "/admin" : "/dashboard") : "/"}
+              replace
+            />
+          }
         />
       </Routes>
     </div>

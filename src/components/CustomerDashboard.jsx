@@ -1,36 +1,24 @@
-// src/pages/admin/AdminDashboard.jsx
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import {
-  ArrowUpDown,
-  Search,
-  RefreshCcw,
-  Loader2,
-  Plus,
-  Edit,
-  Trash2,
-  AlertCircle,
-} from 'lucide-react';
-import axios from 'axios';
+// src/pages/customer/CustomerDashboard.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ArrowUpDown, Search, RefreshCcw, Loader2, AlertCircle } from "lucide-react";
+import axios from "axios";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-/** Table columns — exactly as in DB */
+/** Table columns — customer view */
 const columns = [
-  { key: 'index', label: 'S.No', width: 'w-20', sortable: false },
-  { key: 'vehicleType', label: 'Vehicle Type', width: 'w-44', sortable: true },
-  { key: 'vehicleNo', label: 'Vehicle Number', width: 'w-44', sortable: true },
-  { key: 'customer', label: 'Customer Name', width: 'w-56', sortable: true },
-  { key: 'vcuId', label: 'VCU Model', width: 'w-48', sortable: false },
-  { key: 'hmiId', label: 'HMI Model', width: 'w-48', sortable: false },
-  { key: 'delivery', label: 'Delivery Date', width: 'w-40', sortable: false },
-  { key: 'totalHours', label: 'Total Hours', width: 'w-32', sortable: false },
-  { key: 'totalKwh', label: 'Total kWh', width: 'w-32', sortable: false },
-  { key: 'avgKwh', label: 'Avg kWh', width: 'w-28', sortable: false },
-  { key: 'actions', label: 'Actions', width: 'w-32', sortable: false },
+  { key: "index",       label: "S.No",             width: "w-20", sortable: false },
+  { key: "vehicleType", label: "Vehicle Type",     width: "w-44", sortable: true  },
+  { key: "vehicleNo",   label: "Vehicle Number",   width: "w-44", sortable: true  },
+  { key: "vcuId",       label: "VCU Model",        width: "w-48", sortable: false },
+  { key: "hmiId",       label: "HMI Model",        width: "w-48", sortable: false },
+  { key: "delivery",    label: "Delivery Date",    width: "w-40", sortable: false },
+  { key: "totalHours",  label: "Total Hours",      width: "w-32", sortable: false },
+  { key: "totalKwh",    label: "Total kWh",        width: "w-32", sortable: false },
+  { key: "avgKwh",      label: "Avg kWh",          width: "w-28", sortable: false },
 ];
 
-/** Reusable Pill */
 function Pill({ children }) {
   return (
     <span className="px-2 py-1 text-xs rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-200">
@@ -39,39 +27,38 @@ function Pill({ children }) {
   );
 }
 
-export default function AdminDashboard() {
+export default function CustomerDashboard() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState('');
-  const [query, setQuery] = useState('');
-  const [sort, setSort] = useState({ key: 'vehicleType', dir: 'asc' });
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState({ key: "vehicleType", dir: "asc" });
   const [page, setPage] = useState(1);
   const pageSize = 8;
   const navigate = useNavigate();
 
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
   const token = user?.token;
 
-  /** Fetch Vehicles */
+  /** Fetch ONLY THIS customer's vehicles */
   const fetchData = async () => {
-    setError('');
+    setError("");
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/vehicle-master`, {
+      const res = await axios.get(`${API_BASE_URL}/api/vehicle-master/my`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const mapped = res.data.map(row => ({
+      const mapped = res.data.map((row) => ({
         id: row.vehicle_master_id,
-        vehicleType: `${row.vehicle_make || ''} ${row.vehicle_model || ''}`.trim() || '—',
-        vehicleNo: row.vehicle_reg_no || '—',
-        customer: row.company_name || '—',
-        vcuId: row.vcu_display || '—',
-        hmiId: row.hmi_display || '—',
+        vehicleType: `${row.vehicle_make || ""} ${row.vehicle_model || ""}`.trim() || "—",
+        vehicleNo: row.vehicle_reg_no || "—",
+        vcuId: row.vcu_display || "—",
+        hmiId: row.hmi_display || "—",
         delivery: row.date_of_deployment
-          ? new Date(row.date_of_deployment).toLocaleDateString('en-IN')
-          : '—',
+          ? new Date(row.date_of_deployment).toLocaleDateString("en-IN")
+          : "—",
         totalHours: 0,
         totalKwh: 0,
         avgKwh: 0,
@@ -79,8 +66,8 @@ export default function AdminDashboard() {
 
       setRows(mapped);
     } catch (e) {
-      console.error('Fetch error:', e);
-      setError('Failed to load vehicles. Please try again.');
+      console.error("Fetch error:", e);
+      setError("Failed to load your vehicles. Please try again.");
       setRows([]);
     } finally {
       setLoading(false);
@@ -90,45 +77,44 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (token) fetchData();
     else {
-      setError('Not authenticated. Please log in.');
+      setError("Not authenticated. Please log in.");
       setLoading(false);
     }
   }, [token]);
 
-  /** Refresh */
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchData();
     setRefreshing(false);
   };
 
-  /** Sort */
+  /** Sort only on vehicleType & vehicleNo */
   const onSort = (key, enabled) => {
     if (!enabled) return;
-    setSort(prev =>
+    setSort((prev) =>
       prev.key === key
-        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-        : { key, dir: 'asc' }
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" }
     );
   };
 
-  /** Search + Sort */
+  /** Search only on Vehicle Type & Vehicle Number */
   const filtered = useMemo(() => {
     let data = [...rows];
     const q = query.trim().toLowerCase();
 
     if (q) {
-      data = data.filter(r =>
-        [r.customer, r.vehicleType, r.vehicleNo, r.vcuId, r.hmiId]
-          .some(v => v?.toString().toLowerCase().includes(q))
+      data = data.filter((r) =>
+        [r.vehicleType, r.vehicleNo]
+          .some((v) => v?.toString().toLowerCase().includes(q))
       );
     }
 
-    if (['customer', 'vehicleType', 'vehicleNo'].includes(sort.key)) {
-      const dir = sort.dir === 'asc' ? 1 : -1;
+    if (["vehicleType", "vehicleNo"].includes(sort.key)) {
+      const dir = sort.dir === "asc" ? 1 : -1;
       data.sort((a, b) => {
-        const A = (a[sort.key] ?? '').toString().toLowerCase();
-        const B = (b[sort.key] ?? '').toString().toLowerCase();
+        const A = (a[sort.key] ?? "").toString().toLowerCase();
+        const B = (b[sort.key] ?? "").toString().toLowerCase();
         return A.localeCompare(B) * dir;
       });
     }
@@ -136,7 +122,6 @@ export default function AdminDashboard() {
     return data;
   }, [rows, query, sort]);
 
-  /** Pagination */
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   useEffect(() => {
     if (page > totalPages) setPage(1);
@@ -147,101 +132,16 @@ export default function AdminDashboard() {
     return filtered.slice(start, start + pageSize);
   }, [filtered, page]);
 
-  /** Row Click */
   const handleRowClick = (row) => {
     localStorage.setItem(
-      'selectedVehicle',
+      "selectedVehicle",
       JSON.stringify({
         id: row.id,
         vehicleNo: row.vehicleNo,
         vehicleType: row.vehicleType,
-        customer: row.customer,
       })
     );
     navigate(`/vehicle/${row.id}`);
-  };
-
-  /** CREATE */
-  const handleCreate = async () => {
-    const vehicle_unique_id = prompt('Enter Vehicle Unique ID (e.g. VEH-DEM0-0002):');
-    if (!vehicle_unique_id) return;
-
-    const customer_id = prompt('Enter Customer ID (from customer_master):');
-    if (!customer_id) return;
-
-    const vtype_id = prompt('Enter Vehicle Type ID (from vehicle_type_master):');
-    if (!vtype_id) return;
-
-    const vcu_hmi_id = prompt('Enter VCU+HMI ID (from vcu_hmi_master, optional):');
-    const vehicle_reg_no = prompt('Enter Vehicle Reg No (optional):');
-    const date_of_deployment = prompt('Enter Date of Deployment (YYYY-MM-DD):');
-
-    if (!vehicle_unique_id || !customer_id || !vtype_id) {
-      setError('Required: Unique ID, Customer ID, Vehicle Type ID');
-      return;
-    }
-
-    try {
-      await axios.post(
-        `${API_BASE_URL}/api/vehicle-master`,
-        {
-          vehicle_unique_id,
-          customer_id: parseInt(customer_id),
-          vtype_id: parseInt(vtype_id),
-          vcu_hmi_id: vcu_hmi_id ? parseInt(vcu_hmi_id) : null,
-          vehicle_reg_no: vehicle_reg_no || null,
-          date_of_deployment: date_of_deployment || null,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      await fetchData();
-      setError('Vehicle created successfully!');
-    } catch (e) {
-      setError(e.response?.data?.error || 'Failed to create vehicle');
-    }
-  };
-
-  /** UPDATE */
-  const handleUpdate = async (id) => {
-    const vehicle_reg_no = prompt('Enter new Vehicle Registration No:');
-    if (vehicle_reg_no === null) return;
-
-    const date_of_deployment = prompt('Enter new Date of Deployment (YYYY-MM-DD):');
-    const vcu_hmi_id = prompt('Enter new VCU+HMI ID (optional):');
-
-    const updates = {};
-    if (vehicle_reg_no) updates.vehicle_reg_no = vehicle_reg_no;
-    if (date_of_deployment) updates.date_of_deployment = date_of_deployment;
-    if (vcu_hmi_id) updates.vcu_hmi_id = parseInt(vcu_hmi_id);
-
-    if (Object.keys(updates).length === 0) return;
-
-    try {
-      await axios.put(
-        `${API_BASE_URL}/api/vehicle-master/${id}`,
-        updates,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      await fetchData();
-      setError('Vehicle updated!');
-    } catch (e) {
-      setError(e.response?.data?.error || 'Update failed');
-    }
-  };
-
-  /** DELETE */
-  const handleDelete = async (id) => {
-    if (!window.confirm('Permanently delete this vehicle? This cannot be undone.')) return;
-
-    try {
-      await axios.delete(`${API_BASE_URL}/api/vehicle-master/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      await fetchData();
-      setError('Vehicle deleted.');
-    } catch (e) {
-      setError(e.response?.data?.error || 'Cannot delete: vehicle has live data');
-    }
   };
 
   return (
@@ -256,10 +156,10 @@ export default function AdminDashboard() {
       <div className="relative z-10 max-w-7xl mx-auto px-6 py-10">
         <header className="mb-8 text-center">
           <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-orange-400 via-red-400 to-orange-300 bg-clip-text text-transparent">
-            Admin Dashboard
+            My Vehicles
           </h1>
           <p className="mt-2 text-sm text-orange-200/80">
-            Admin view — manage all registered vehicles
+            View and monitor your registered vehicles
           </p>
         </header>
 
@@ -270,28 +170,19 @@ export default function AdminDashboard() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by Customer, Vehicle Type, Reg No, VCU, HMI..."
+              placeholder="Search by Vehicle Type or Reg No..."
               className="w-full pl-12 pr-4 py-3 rounded-xl bg-black/40 border border-orange-500/30 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 shadow-lg"
             />
           </div>
 
-          <div className="flex gap-2">
-            <button
-              onClick={onRefresh}
-              disabled={refreshing}
-              className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-orange-500 via-red-500 to-orange-500 text-white font-semibold border border-orange-500/40 shadow-lg hover:shadow-xl hover:scale-[1.02] transition disabled:opacity-50"
-            >
-              {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
-              Refresh
-            </button>
-            <button
-              onClick={handleCreate}
-              className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-600 text-white font-semibold border border-green-700 shadow-lg hover:shadow-xl hover:scale-[1.02] transition"
-            >
-              <Plus className="w-4 h-4" />
-              Add Vehicle
-            </button>
-          </div>
+          <button
+            onClick={onRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-orange-500 via-red-500 to-orange-500 text-white font-semibold border border-orange-500/40 shadow-lg hover:shadow-xl hover:scale-[1.02] transition disabled:opacity-50"
+          >
+            {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
+            Refresh
+          </button>
         </div>
 
         {/* Error */}
@@ -314,15 +205,15 @@ export default function AdminDashboard() {
                       className={`px-5 py-4 text-sm font-semibold uppercase tracking-wider text-orange-200/90 ${c.width}`}
                     >
                       <button
-                        className={`inline-flex items-center gap-1 ${c.sortable ? 'hover:text-white transition' : 'cursor-default'}`}
+                        className={`inline-flex items-center gap-1 ${c.sortable ? "hover:text-white transition" : "cursor-default"}`}
                         onClick={() => onSort(c.key, c.sortable)}
-                        title={c.sortable ? 'Click to sort' : undefined}
+                        title={c.sortable ? "Sort" : undefined}
                       >
                         {c.label}
                         {c.sortable && (
                           <ArrowUpDown
                             className={`w-4 h-4 transition-opacity ${
-                              sort.key === c.key ? 'opacity-100' : 'opacity-40'
+                              sort.key === c.key ? "opacity-100" : "opacity-40"
                             }`}
                           />
                         )}
@@ -361,31 +252,12 @@ export default function AdminDashboard() {
                       </td>
                       <td className="px-5 py-4"><Pill>{row.vehicleType}</Pill></td>
                       <td className="px-5 py-4 text-gray-100 font-medium">{row.vehicleNo}</td>
-                      <td className="px-5 py-4 text-gray-100">{row.customer}</td>
                       <td className="px-5 py-4 text-gray-300 text-xs">{row.vcuId}</td>
                       <td className="px-5 py-4 text-gray-300 text-xs">{row.hmiId}</td>
                       <td className="px-5 py-4 text-gray-100">{row.delivery}</td>
                       <td className="px-5 py-4 text-gray-100">{row.totalHours}</td>
                       <td className="px-5 py-4 text-gray-100">{row.totalKwh}</td>
                       <td className="px-5 py-4 text-gray-100">{row.avgKwh}</td>
-                      <td className="px-5 py-4 text-gray-100">
-                        <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => handleUpdate(row.id)}
-                            className="p-1 text-blue-400 hover:text-blue-300 transition"
-                            title="Edit"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(row.id)}
-                            className="p-1 text-red-400 hover:text-red-300 transition"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
                     </tr>
                   ))
                 )}
@@ -405,7 +277,7 @@ export default function AdminDashboard() {
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
                 className="px-3 py-2 rounded-lg border border-orange-500/30 text-orange-200 disabled:opacity-50 hover:bg-orange-500/10 transition"
               >
@@ -415,7 +287,7 @@ export default function AdminDashboard() {
                 Page <b>{page}</b> / {totalPages}
               </span>
               <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
                 className="px-3 py-2 rounded-lg border border-orange-500/30 text-orange-200 disabled:opacity-50 hover:bg-orange-500/10 transition"
               >

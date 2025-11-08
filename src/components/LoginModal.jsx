@@ -41,7 +41,10 @@ export default function LoginModal({ onClose, onAuth }) {
 
       const { token, user } = data;
 
-      // Persist auth for guards/refresh
+      // SAVE JWT TOKEN (CRITICAL FOR LIVE DATA)
+      localStorage.setItem("token", token);
+
+      // Save user info + token
       const authPayload = {
         token,
         name: user.name,
@@ -50,20 +53,21 @@ export default function LoginModal({ onClose, onAuth }) {
       };
       localStorage.setItem("user", JSON.stringify(authPayload));
 
-      // 🔐 SAVE PASSWORD FOR MASTER DATABASE ACCESS
+      // SAVE PASSWORD FOR MASTER DB ACCESS (as you already do)
       localStorage.setItem("loginPassword", password);
 
-      // Notify parent/app state if provided
+      // Notify parent component
       if (typeof onAuth === "function") {
-        try { onAuth({ token, user }); } catch {}
+        try { onAuth({ token, user }); } catch (e) { console.error(e); }
       }
 
-      // Fire custom event
-      try { window.dispatchEvent(new CustomEvent("auth:login", { detail: { token, user } })); } catch {}
+      // Fire global event
+      try {
+        window.dispatchEvent(new CustomEvent("auth:login", { detail: { token, user } }));
+      } catch (e) { console.error(e); }
 
       // Navigate based on role
       const target = user.role === "admin" ? "/admin/dashboard" : "/dashboard";
-
       navigate(target, { replace: true, state: { fromLogin: true, ts: Date.now() } });
 
       // Fallback redirect
@@ -75,11 +79,12 @@ export default function LoginModal({ onClose, onAuth }) {
 
       onClose?.();
     } catch (err) {
-      setError(
+      const message =
         err?.response?.data?.error ||
-          err?.response?.data?.message ||
-          "Invalid credentials. Please try again."
-      );
+        err?.response?.data?.message ||
+        "Invalid credentials. Please try again.";
+      setError(message);
+      console.error("Login failed:", err);
     } finally {
       setLoading(false);
     }
@@ -91,7 +96,8 @@ export default function LoginModal({ onClose, onAuth }) {
 
   const handleReset = () => {
     localStorage.removeItem("user");
-    localStorage.removeItem("loginPassword"); // Clear password too
+    localStorage.removeItem("token");
+    localStorage.removeItem("loginPassword");
     setEmail("");
     setPassword("");
     setError("");
@@ -224,7 +230,7 @@ export default function LoginModal({ onClose, onAuth }) {
 
             <button
               onClick={handleReset}
-              className="w-full mt-4 py-3 text-orange-300 border border-orange-500/30 rounded-xl hover:bg-orange-500/10"
+              className="w-full mt-4 py-3 text-orange-300 border border-orange-500/30 rounded-xl hover:bg-orange-500/10 transition-colors"
               disabled={loading}
             >
               Clear

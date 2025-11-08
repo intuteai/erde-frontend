@@ -12,7 +12,14 @@ function FooterFixed() {
         />
         <span className="text-base">
           Secured by{" "}
-          <span className="text-orange-400 font-semibold">Intute.ai</span>
+          <a
+            href="https://www.intute.in/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-orange-400 font-semibold hover:text-orange-300 transition-colors duration-200 underline underline-offset-2"
+          >
+            Intute.ai
+          </a>
         </span>
       </div>
     </footer>
