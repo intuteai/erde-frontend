@@ -58,7 +58,7 @@ export default function AdminDashboard() {
     setError('');
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/vehicle-master`, {
+      const res = await axios.get(`${API_BASE_URL}/vehicle-master`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -183,7 +183,7 @@ export default function AdminDashboard() {
 
     try {
       await axios.post(
-        `${API_BASE_URL}/api/vehicle-master`,
+        `${API_BASE_URL}/vehicle-master`,
         {
           vehicle_unique_id,
           customer_id: parseInt(customer_id),
@@ -218,7 +218,7 @@ export default function AdminDashboard() {
 
     try {
       await axios.put(
-        `${API_BASE_URL}/api/vehicle-master/${id}`,
+        `${API_BASE_URL}/vehicle-master/${id}`,
         updates,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -234,7 +234,7 @@ export default function AdminDashboard() {
     if (!window.confirm('Permanently delete this vehicle? This cannot be undone.')) return;
 
     try {
-      await axios.delete(`${API_BASE_URL}/api/vehicle-master/${id}`, {
+      await axios.delete(`${API_BASE_URL}/vehicle-master/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       await fetchData();
