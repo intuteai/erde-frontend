@@ -46,7 +46,7 @@ export default function CustomerDashboard() {
     setError("");
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/vehicle-master/my`, {
+      const res = await axios.get(`${API_BASE_URL}/vehicle-master/my`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
