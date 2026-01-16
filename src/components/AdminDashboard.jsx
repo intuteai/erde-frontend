@@ -65,7 +65,7 @@ export default function AdminDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState({ key: "vehicle_type", dir: "asc" });
+  const [sort, setSort] = useState(null); // ← Changed: no default sorting
   const [page, setPage] = useState(1);
 
   const navigate = useNavigate();
@@ -122,7 +122,7 @@ export default function AdminDashboard() {
      BASE SORTED LIST (always by vehicle_master_id ASC)
   ========================= */
   const baseSortedRows = useMemo(() => {
-    return [...rows].sort((a, b) => 
+    return [...rows].sort((a, b) =>
       Number(a.vehicle_master_id) - Number(b.vehicle_master_id)
     );
   }, [rows]);
@@ -154,8 +154,8 @@ export default function AdminDashboard() {
       );
     }
 
-    // Apply user-selected sort ONLY if different from default ID sort
-    if (sort.key && sort.key !== "vehicle_master_id") {
+    // Apply user-selected sort ONLY if sort is set
+    if (sort?.key) {
       const multiplier = sort.dir === "asc" ? 1 : -1;
 
       data.sort((a, b) => {
@@ -218,11 +218,14 @@ export default function AdminDashboard() {
   const onSort = (key) => {
     if (!columns.find((c) => c.key === key)?.sortable) return;
 
-    setSort((prev) =>
-      prev.key === key
-        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
-        : { key, dir: "asc" }
-    );
+    setSort((prev) => {
+      // If clicking the same column → toggle direction
+      if (prev?.key === key) {
+        return { key, dir: prev.dir === "asc" ? "desc" : "asc" };
+      }
+      // New column → start with asc
+      return { key, dir: "asc" };
+    });
   };
 
   /* =========================
@@ -314,7 +317,7 @@ export default function AdminDashboard() {
                         {col.sortable && (
                           <ArrowUpDown
                             className={`w-4 h-4 transition-transform ${
-                              sort.key === col.key
+                              sort?.key === col.key
                                 ? sort.dir === "asc"
                                   ? "rotate-0"
                                   : "rotate-180"
