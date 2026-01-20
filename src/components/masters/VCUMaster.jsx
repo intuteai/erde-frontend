@@ -278,14 +278,15 @@ export default function VCUMaster() {
                   label="Serial Number *"
                   value={form.serial_number}
                   onChange={(v) => {
-                    // Only allow alphanumeric + convert to uppercase
+                    // Allow A-Z, 0-9 and safe special characters: - _ . / :
                     const cleaned = v
-                      .replace(/[^A-Z0-9]/gi, "")
+                      .replace(/[^A-Z0-9\-_.:/]/gi, "")
                       .toUpperCase();
+
                     setForm({ ...form, serial_number: cleaned });
                   }}
                   className="uppercase font-mono tracking-wide"
-                  placeholder="e.g. ABC123XYZ789"
+                  placeholder="e.g. VCU-01/2025.A"
                 />
                 <TextArea
                   label="VCU Specs"
