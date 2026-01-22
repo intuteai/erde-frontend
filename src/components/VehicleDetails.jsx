@@ -6,7 +6,7 @@ import MotorAnalytics from "./tabs/MotorAnalytics";
 import BatteryAnalytics from "./tabs/BatteryAnalytics";
 import MotorFaults from "./tabs/MotorFaults";
 import DatabaseLogs from "./tabs/DatabaseLogs";
-import Troubleshooting from "./tabs/Troubleshooting";
+import DatabaseModuleExport from "./tabs/DatabaseModuleExport"; // ✅ NEW
 
 /* ========================= PAGE SHELL ========================= */
 export default function VehicleDetails() {
@@ -32,7 +32,8 @@ export default function VehicleDetails() {
   const isCustomer = user?.role === "customer";
   const isAdmin = user?.role === "admin";
 
-  // Customers only see Live View — no tabs needed
+  /* ========================= CUSTOMER VIEW ========================= */
+  // Customers only see Live View
   if (isCustomer) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-900 to-black text-white">
@@ -52,7 +53,7 @@ export default function VehicleDetails() {
           </div>
         </div>
 
-        {/* ===== FULL LIVE VIEW FOR CUSTOMER ===== */}
+        {/* ===== FULL LIVE VIEW ===== */}
         <div className="px-6 py-10">
           <div className="max-w-6xl mx-auto">
             <LiveView />
@@ -62,14 +63,15 @@ export default function VehicleDetails() {
     );
   }
 
-  // ===== ADMIN VIEW: Full tabs =====
+  /* ========================= ADMIN VIEW ========================= */
+
   const tabs = [
     "Live View",
     "Motor Analytics",
     "Battery Analytics",
     "Motor Faults",
     "Database / Log",
-    "Troubleshooting",
+    "Module Export", // ✅ NEW TAB
   ];
 
   return (
@@ -87,7 +89,7 @@ export default function VehicleDetails() {
         </div>
       </div>
 
-      {/* ===== STICKY TABS (Admin Only) ===== */}
+      {/* ===== STICKY TABS ===== */}
       <div className="sticky top-[73px] z-10 bg-gradient-to-b from-gray-900 to-gray-900/95 backdrop-blur-sm border-b border-orange-500/20 shadow-lg">
         <div className="px-6 py-4">
           <div className="max-w-6xl mx-auto flex flex-wrap gap-3">
@@ -108,7 +110,7 @@ export default function VehicleDetails() {
         </div>
       </div>
 
-      {/* ===== TAB CONTENT (Admin Only) ===== */}
+      {/* ===== TAB CONTENT ===== */}
       <div className="px-6 py-10">
         <div className="max-w-6xl mx-auto">
           {activeTab === "Live View" && <LiveView />}
@@ -116,7 +118,7 @@ export default function VehicleDetails() {
           {activeTab === "Battery Analytics" && <BatteryAnalytics />}
           {activeTab === "Motor Faults" && <MotorFaults />}
           {activeTab === "Database / Log" && <DatabaseLogs />}
-          {activeTab === "Troubleshooting" && <Troubleshooting />}
+          {activeTab === "Module Export" && <DatabaseModuleExport />} {/* ✅ */}
         </div>
       </div>
     </div>
