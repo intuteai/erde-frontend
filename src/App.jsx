@@ -21,8 +21,9 @@ import CustomerDashboard from "./components/CustomerDashboard";
 import AdminSplash from "./components/AdminSplash";
 import CustomerSplash from "./components/CustomerSplash";
 
-// Other Components
+// Vehicle
 import VehicleDetails from "./components/VehicleDetails";
+import VehicleLiveTrack from "./components/VehicleLiveTrack"; // ✅ NEW
 
 // Masters
 import CustomerMaster from "./components/masters/CustomerMaster";
@@ -55,7 +56,6 @@ function App() {
         location.pathname === "/" || location.pathname === "/login";
 
       if (isLoginPage) {
-        // ✅ Send admins to splash instead of directly to /admin
         const redirectTo =
           user.role === "admin" ? "/admin/splash" : "/customer/splash";
         navigate(redirectTo, { replace: true });
@@ -75,7 +75,6 @@ function App() {
     localStorage.setItem("user", JSON.stringify(newUser));
     setShowLogin(false);
 
-    // ✅ After login, admins go to splash first
     const redirectTo = role === "admin" ? "/admin/splash" : "/customer/splash";
     navigate(redirectTo, { replace: true });
   };
@@ -88,7 +87,9 @@ function App() {
     navigate("/", { replace: true });
   };
 
-  // Protected Layout with Role Check
+  /* =========================
+     PROTECTED LAYOUT
+  ========================= */
   const ProtectedLayout = ({ children, requiredRole }) => {
     if (!user) return <Navigate to="/" replace />;
 
@@ -128,7 +129,7 @@ function App() {
           }
         />
 
-        {/* Admin Splash — full screen, no header/footer */}
+        {/* Splash Screens */}
         <Route
           path="/admin/splash"
           element={
@@ -150,7 +151,7 @@ function App() {
           }
         />
 
-        {/* Admin Dashboard */}
+        {/* Dashboards */}
         <Route
           path="/admin"
           element={
@@ -160,7 +161,6 @@ function App() {
           }
         />
 
-        {/* Customer Dashboard */}
         <Route
           path="/dashboard"
           element={
@@ -170,12 +170,22 @@ function App() {
           }
         />
 
-        {/* Vehicle Details (both roles) */}
+        {/* Vehicle Details */}
         <Route
           path="/vehicle/:id"
           element={
             <ProtectedLayout>
               <VehicleDetails />
+            </ProtectedLayout>
+          }
+        />
+
+        {/* ✅ LIVE TRACKING (NEW) */}
+        <Route
+          path="/vehicle/:id/track"
+          element={
+            <ProtectedLayout>
+              <VehicleLiveTrack />
             </ProtectedLayout>
           }
         />
