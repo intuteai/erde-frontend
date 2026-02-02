@@ -24,13 +24,12 @@ export default function DatabaseLogs() {
   const [cursor, setCursor] = useState(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [exportTotal, setExportTotal] = useState(0);
+  const [exportCurrent, setExportCurrent] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState(null);
-  const [totalExported, setTotalExported] = useState(0);
   const loadMoreRef = useRef(null);
-
-  /* ========================= RAW MODAL STATE ========================= */
-  // (kept for possible future use, but currently not used)
 
   /* ========================= ALL COLUMNS ========================= */
   const COLUMNS = [
@@ -166,87 +165,129 @@ export default function DatabaseLogs() {
     }
   };
 
-  /* ========================= EXPORT DATA ========================= */
+  /* ========================= OPTIMIZED EXPORT WITH STREAMING & PROGRESS ========================= */
   const exportData = async () => {
     setExporting(true);
+    setExportProgress(0);
+    setExportTotal(0);
+    setExportCurrent(0);
     setError(null);
+
+    let abortController = new AbortController();
 
     try {
       const token = localStorage.getItem("token");
       const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
-      let fetchUrl = `/api/database-logs/${vehicleId}?full=true`;
+      // Build export parameters
+      let exportParams = new URLSearchParams();
 
       switch (exportMode) {
         case "selected":
-          fetchUrl += `&date=${selectedDate}`;
+          exportParams.append('date', selectedDate);
           break;
         case "today":
-          fetchUrl += `&period=today`;
+          exportParams.append('period', 'today');
           break;
         case "week":
-          fetchUrl += `&period=week`;
+          exportParams.append('period', 'week');
           break;
         case "month":
-          fetchUrl += `&period=month`;
+          exportParams.append('period', 'month');
           break;
         case "all":
-          fetchUrl += `&period=all`;
+          exportParams.append('period', 'all');
           break;
         case "custom":
           if (!customStart || !customEnd) {
             alert("Please select both start and end dates");
+            setExporting(false);
             return;
           }
-          fetchUrl += `&start=${customStart}&end=${customEnd}`;
+          exportParams.append('start', customStart);
+          exportParams.append('end', customEnd);
           break;
         default:
-          fetchUrl += `&date=${selectedDate}`;
+          exportParams.append('date', selectedDate);
       }
 
-      const res = await fetch(fetchUrl, { headers: authHeaders });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Failed: ${res.status} ${text || res.statusText}`);
+      // Add selected columns
+      const visibleCols = COLUMNS.filter(c => c.alwaysVisible || selectedCols.has(c.key));
+      const columnKeys = visibleCols.map(c => c.key);
+      exportParams.append('columns', JSON.stringify(columnKeys));
+
+      // Step 1: Get total count for progress tracking
+      const countUrl = `/api/database-logs/${vehicleId}/count?${exportParams.toString()}`;
+      const countRes = await fetch(countUrl, { 
+        headers: authHeaders,
+        signal: abortController.signal 
+      });
+
+      if (!countRes.ok) {
+        throw new Error('Failed to get row count');
       }
 
-      const data = await res.json();
+      const { total } = await countRes.json();
+      setExportTotal(total);
 
-      if (!Array.isArray(data) || data.length === 0) {
+      if (total === 0) {
         alert("No data available for the selected range");
-        setTotalExported(0);
+        setExporting(false);
         return;
       }
 
-      setTotalExported(data.length);
+      // Step 2: Start the export with streaming
+      const exportUrl = `/api/database-logs/${vehicleId}/export?${exportParams.toString()}`;
+      
+      const exportRes = await fetch(exportUrl, { 
+        headers: authHeaders,
+        signal: abortController.signal 
+      });
 
-      // ────────────────────────────────────────────────
-      // Safety: explicitly exclude cell_voltages & temp_sensors
-      // ────────────────────────────────────────────────
-      const visibleCols = COLUMNS.filter(
-        c =>
-          (c.alwaysVisible || selectedCols.has(c.key)) &&
-          c.key !== "cell_voltages" &&
-          c.key !== "temp_sensors"
-      );
+      if (!exportRes.ok) {
+        const text = await exportRes.text().catch(() => "");
+        throw new Error(`Export failed: ${exportRes.status} ${text || exportRes.statusText}`);
+      }
 
-      const csvHeaders = visibleCols.map(c => c.label);
-      const csvRows = data.map(row =>
-        visibleCols.map(col => {
-          const val = row[col.key];
-          return val ?? "";
-        })
-      );
+      // Get total from headers if available
+      const totalFromHeader = exportRes.headers.get('X-Total-Rows');
+      if (totalFromHeader) {
+        setExportTotal(parseInt(totalFromHeader, 10));
+      }
 
-      const csvContent = [csvHeaders, ...csvRows]
-        .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(","))
-        .join("\n");
+      // Read the stream and track progress
+      const reader = exportRes.body.getReader();
+      const chunks = [];
+      let receivedLength = 0;
+      let estimatedRows = 0;
+      const avgBytesPerRow = 150; // Rough estimate
 
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        chunks.push(value);
+        receivedLength += value.length;
+        
+        // Estimate rows processed (rough calculation)
+        estimatedRows = Math.floor(receivedLength / avgBytesPerRow);
+        setExportCurrent(Math.min(estimatedRows, total));
+        
+        // Calculate progress percentage
+        const progress = total > 0 ? Math.min((estimatedRows / total) * 100, 99) : 0;
+        setExportProgress(progress);
+      }
+
+      // Combine all chunks into a blob
+      const blob = new Blob(chunks, { type: 'text/csv' });
+
+      // Create download link
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
 
+      // Generate filename
       let filename = `raw_telemetry_${vehicleId}`;
       switch (exportMode) {
         case "selected": filename += `_${selectedDate}`; break;
@@ -256,14 +297,32 @@ export default function DatabaseLogs() {
         case "all": filename += `_all_time`; break;
         case "custom": filename += `_from_${customStart}_to_${customEnd}`; break;
       }
-      filename += `_full_${data.length}_rows.csv`;
+      filename += `.csv`;
 
       a.download = filename;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(blobUrl);
+
+      // Mark as complete
+      setExportProgress(100);
+      setExportCurrent(total);
+      
+      // Reset progress after 3 seconds
+      setTimeout(() => {
+        setExportProgress(0);
+        setExportTotal(0);
+        setExportCurrent(0);
+      }, 3000);
+
     } catch (err) {
-      console.error("Export error:", err);
-      setError("Failed to export data: " + err.message);
+      if (err.name === 'AbortError') {
+        console.log('Export cancelled by user');
+      } else {
+        console.error("Export error:", err);
+        setError("Failed to export data: " + err.message);
+      }
     } finally {
       setExporting(false);
     }
@@ -274,7 +333,6 @@ export default function DatabaseLogs() {
     setRows([]);
     setCursor(null);
     setHasMore(true);
-    setTotalExported(0);
     fetchLogs(true);
   }, [vehicleId, selectedDate]);
 
@@ -361,22 +419,73 @@ export default function DatabaseLogs() {
           </div>
         )}
 
-        <div className="flex justify-center">
+        <div className="flex flex-col items-center gap-4">
           <button
             onClick={exportData}
             disabled={exporting || loading}
             className="px-10 py-4 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-xl font-bold text-lg shadow-xl hover:shadow-2xl disabled:opacity-60 disabled:cursor-not-allowed transition flex items-center gap-4"
           >
             {exporting ? (
-              <>Exporting data...</>
+              <>
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Exporting... {exportProgress > 0 ? `${exportProgress.toFixed(0)}%` : 'Please wait'}
+              </>
+            ) : exportProgress === 100 ? (
+              <>
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Export Complete!
+              </>
             ) : (
               <>
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
                 Export Data
-                {totalExported > 0 && ` (${totalExported} rows)`}
               </>
             )}
           </button>
+
+          {/* Progress Bar */}
+          {exporting && exportTotal > 0 && (
+            <div className="w-full max-w-2xl">
+              <div className="flex justify-between text-sm text-orange-300 mb-2">
+                <span>
+                  {exportCurrent.toLocaleString()} / {exportTotal.toLocaleString()} rows
+                </span>
+                <span>{exportProgress.toFixed(1)}%</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-4 overflow-hidden shadow-inner">
+                <div
+                  className="h-full bg-gradient-to-r from-emerald-500 to-green-500 transition-all duration-300 ease-out flex items-center justify-end pr-2"
+                  style={{ width: `${exportProgress}%` }}
+                >
+                  {exportProgress > 10 && (
+                    <span className="text-xs font-bold text-white drop-shadow">
+                      {exportProgress.toFixed(0)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="text-center text-xs text-orange-400/70 mt-2">
+                ⏳ Large exports may take a few minutes. Your download will start automatically.
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Export Info Banner - only show if not already showing progress */}
+        {exporting && exportTotal === 0 && (
+          <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
+            <p className="text-blue-300 text-sm">
+              ⏳ Calculating total rows... Please wait.
+            </p>
+          </div>
+        )}
 
         <div className="pt-8 mt-8 border-t border-orange-500/20">
           <div className="flex justify-between items-center mb-4">
@@ -419,11 +528,6 @@ export default function DatabaseLogs() {
       <div className="bg-gray-900/90 border border-orange-500/30 rounded-xl overflow-hidden shadow-lg">
         <div className="px-6 py-4 bg-gray-950/80 border-b border-orange-500/20 text-orange-300 font-medium">
           Showing {rows.length.toLocaleString()} record{rows.length !== 1 ? "s" : ""} for {selectedDate}
-          {totalExported > 0 && totalExported !== rows.length && (
-            <span className="ml-4 text-emerald-400">
-              • Full export available: {totalExported.toLocaleString()} rows
-            </span>
-          )}
         </div>
 
         <div className="overflow-auto max-h-[700px]">

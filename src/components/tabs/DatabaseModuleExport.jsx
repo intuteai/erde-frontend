@@ -22,6 +22,10 @@ export default function DatabaseModuleExport() {
   const [customStart, setCustomStart] = useState(todayStr);
   const [customEnd, setCustomEnd] = useState(todayStr);
   const [exporting, setExporting] = useState(false);
+  const [exportType, setExportType] = useState(null); // 'cells' or 'temps'
+  const [exportProgress, setExportProgress] = useState(0);
+  const [exportTotal, setExportTotal] = useState(0);
+  const [exportCurrent, setExportCurrent] = useState(0);
   const [error, setError] = useState(null);
 
   /* ========================= BUILD QUERY ========================= */
@@ -46,45 +50,119 @@ export default function DatabaseModuleExport() {
     }
   };
 
-  /* ========================= DOWNLOAD ========================= */
+  /* ========================= DOWNLOAD WITH PROGRESS ========================= */
   const downloadCsv = async (type) => {
     setExporting(true);
+    setExportType(type);
+    setExportProgress(0);
+    setExportTotal(0);
+    setExportCurrent(0);
     setError(null);
+
+    let abortController = new AbortController();
 
     try {
       const query = buildQuery();
-      const url = `/api/database-logs/${vehicleId}/export/${type}?${query}`;
-
-      // ✅ FIX: send Authorization header (JWT-based auth)
       const token = localStorage.getItem("token");
+      const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
-      const res = await fetch(url, {
-        method: "GET",
-        headers: token
-          ? { Authorization: `Bearer ${token}` }
-          : {},
+      // Step 1: Get total count for progress tracking
+      const countUrl = `/api/database-logs/${vehicleId}/export/${type}/count?${query}`;
+      const countRes = await fetch(countUrl, { 
+        headers: authHeaders,
+        signal: abortController.signal 
       });
 
-      if (!res.ok) {
-        throw new Error(`Export failed (${res.status})`);
+      if (!countRes.ok) {
+        throw new Error('Failed to get row count');
       }
 
-      const blob = await res.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
+      const { total } = await countRes.json();
+      setExportTotal(total);
 
+      if (total === 0) {
+        alert(`No ${type === 'cells' ? 'cell voltage' : 'temperature'} data available for the selected range`);
+        setExporting(false);
+        return;
+      }
+
+      // Step 2: Start the export with streaming
+      const exportUrl = `/api/database-logs/${vehicleId}/export/${type}?${query}`;
+      
+      const exportRes = await fetch(exportUrl, { 
+        headers: authHeaders,
+        signal: abortController.signal 
+      });
+
+      if (!exportRes.ok) {
+        throw new Error(`Export failed (${exportRes.status})`);
+      }
+
+      // Get total from headers if available
+      const totalFromHeader = exportRes.headers.get('X-Total-Rows');
+      if (totalFromHeader) {
+        setExportTotal(parseInt(totalFromHeader, 10));
+      }
+
+      // Read the stream and track progress
+      const reader = exportRes.body.getReader();
+      const chunks = [];
+      let receivedLength = 0;
+      let estimatedRows = 0;
+      const avgBytesPerRow = type === 'cells' ? 300 : 200; // Cells have more data
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        chunks.push(value);
+        receivedLength += value.length;
+        
+        // Estimate rows processed
+        estimatedRows = Math.floor(receivedLength / avgBytesPerRow);
+        setExportCurrent(Math.min(estimatedRows, total));
+        
+        // Calculate progress percentage
+        const progress = total > 0 ? Math.min((estimatedRows / total) * 100, 99) : 0;
+        setExportProgress(progress);
+      }
+
+      // Combine all chunks into a blob
+      const blob = new Blob(chunks, { type: 'text/csv' });
+
+      // Create download link
+      const blobUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
-      a.download =
-        type === "cells"
-          ? `vehicle_${vehicleId}_cell_voltages.csv`
-          : `vehicle_${vehicleId}_temperature_sensors.csv`;
+      a.download = type === "cells"
+        ? `vehicle_${vehicleId}_cell_voltages.csv`
+        : `vehicle_${vehicleId}_temperature_sensors.csv`;
 
       document.body.appendChild(a);
       a.click();
       a.remove();
       window.URL.revokeObjectURL(blobUrl);
+
+      // Mark as complete
+      setExportProgress(100);
+      setExportCurrent(total);
+      
+      // Reset progress after 3 seconds
+      setTimeout(() => {
+        setExportProgress(0);
+        setExportTotal(0);
+        setExportCurrent(0);
+        setExportType(null);
+      }, 3000);
+
     } catch (err) {
-      setError(err.message || "Export failed");
+      if (err.name === 'AbortError') {
+        console.log('Export cancelled by user');
+      } else {
+        console.error("Export error:", err);
+        setError(err.message || "Export failed");
+      }
     } finally {
       setExporting(false);
     }
@@ -107,7 +185,8 @@ export default function DatabaseModuleExport() {
             <select
               value={exportMode}
               onChange={(e) => setExportMode(e.target.value)}
-              className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition"
+              disabled={exporting}
+              className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition disabled:opacity-50"
             >
               <option value="selected">Selected Day</option>
               <option value="today">Today</option>
@@ -128,7 +207,8 @@ export default function DatabaseModuleExport() {
                 value={selectedDate}
                 max={todayStr}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition"
+                disabled={exporting}
+                className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition disabled:opacity-50"
               />
             </div>
           )}
@@ -143,7 +223,8 @@ export default function DatabaseModuleExport() {
                 value={customStart}
                 max={customEnd}
                 onChange={(e) => setCustomStart(e.target.value)}
-                className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition"
+                disabled={exporting}
+                className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition disabled:opacity-50"
               />
             </div>
             <div className="flex items-center gap-3">
@@ -154,7 +235,8 @@ export default function DatabaseModuleExport() {
                 min={customStart}
                 max={todayStr}
                 onChange={(e) => setCustomEnd(e.target.value)}
-                className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition"
+                disabled={exporting}
+                className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition disabled:opacity-50"
               />
             </div>
           </div>
@@ -165,29 +247,108 @@ export default function DatabaseModuleExport() {
           <button
             onClick={() => downloadCsv("cells")}
             disabled={exporting}
-            className="px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold shadow-xl hover:shadow-2xl disabled:opacity-60 transition"
+            className="px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold shadow-xl hover:shadow-2xl disabled:opacity-60 transition flex items-center justify-center gap-3"
           >
-            Export Cell Voltages
+            {exporting && exportType === 'cells' ? (
+              <>
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Exporting... {exportProgress > 0 ? `${exportProgress.toFixed(0)}%` : ''}
+              </>
+            ) : exportProgress === 100 && exportType === 'cells' ? (
+              <>
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Complete!
+              </>
+            ) : (
+              <>
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export Cell Voltages
+              </>
+            )}
           </button>
 
           <button
             onClick={() => downloadCsv("temps")}
             disabled={exporting}
-            className="px-8 py-4 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-xl font-bold shadow-xl hover:shadow-2xl disabled:opacity-60 transition"
+            className="px-8 py-4 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-xl font-bold shadow-xl hover:shadow-2xl disabled:opacity-60 transition flex items-center justify-center gap-3"
           >
-            Export Temperature Sensors
+            {exporting && exportType === 'temps' ? (
+              <>
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Exporting... {exportProgress > 0 ? `${exportProgress.toFixed(0)}%` : ''}
+              </>
+            ) : exportProgress === 100 && exportType === 'temps' ? (
+              <>
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Complete!
+              </>
+            ) : (
+              <>
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export Temperature Sensors
+              </>
+            )}
           </button>
         </div>
 
-        {exporting && (
-          <div className="text-center text-orange-300">
-            Preparing export…
+        {/* Progress Bar */}
+        {exporting && exportTotal > 0 && (
+          <div className="w-full pt-4">
+            <div className="flex justify-between text-sm text-orange-300 mb-2">
+              <span>
+                {exportType === 'cells' ? 'Cell Voltage Data' : 'Temperature Data'}: {' '}
+                {exportCurrent.toLocaleString()} / {exportTotal.toLocaleString()} rows
+              </span>
+              <span>{exportProgress.toFixed(1)}%</span>
+            </div>
+            <div className="w-full bg-gray-700 rounded-full h-4 overflow-hidden shadow-inner">
+              <div
+                className={`h-full transition-all duration-300 ease-out flex items-center justify-end pr-2 ${
+                  exportType === 'cells' 
+                    ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
+                    : 'bg-gradient-to-r from-emerald-500 to-green-500'
+                }`}
+                style={{ width: `${exportProgress}%` }}
+              >
+                {exportProgress > 10 && (
+                  <span className="text-xs font-bold text-white drop-shadow">
+                    {exportProgress.toFixed(0)}%
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="text-center text-xs text-orange-400/70 mt-2">
+              ⏳ Large exports may take a few minutes. Your download will start automatically.
+            </div>
+          </div>
+        )}
+
+        {/* Calculating message */}
+        {exporting && exportTotal === 0 && (
+          <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
+            <p className="text-blue-300 text-sm">
+              ⏳ Calculating total rows... Please wait.
+            </p>
           </div>
         )}
 
         {error && (
-          <div className="text-center text-red-400 font-medium">
-            {error}
+          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-center">
+            <p className="text-red-400 font-medium">{error}</p>
           </div>
         )}
       </div>
