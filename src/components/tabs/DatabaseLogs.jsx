@@ -17,7 +17,7 @@ export default function DatabaseLogs() {
   const todayStr = fmtDate(today);
 
   const [selectedDate, setSelectedDate] = useState(todayStr);
-  const [exportMode, setExportMode] = useState("selected");
+  const [exportMode, setExportMode] = useState("today");
   const [customStart, setCustomStart] = useState(todayStr);
   const [customEnd, setCustomEnd] = useState(todayStr);
   const [rows, setRows] = useState([]);
@@ -40,6 +40,7 @@ export default function DatabaseLogs() {
     { key: "battery_status", label: "Battery Status" },
     { key: "stack_voltage_v", label: "Stack Voltage (V)" },
     { key: "battery_current_a", label: "Battery Current (A)" },
+    { key: "output_power_kw", label: "Output Power (kW)" },
     { key: "charger_current_demand_a", label: "Charger Current Demand (A)" },
     { key: "charger_voltage_demand_v", label: "Charger Voltage Demand (V)" },
 
@@ -183,20 +184,8 @@ export default function DatabaseLogs() {
       let exportParams = new URLSearchParams();
 
       switch (exportMode) {
-        case "selected":
-          exportParams.append('date', selectedDate);
-          break;
         case "today":
           exportParams.append('period', 'today');
-          break;
-        case "week":
-          exportParams.append('period', 'week');
-          break;
-        case "month":
-          exportParams.append('period', 'month');
-          break;
-        case "all":
-          exportParams.append('period', 'all');
           break;
         case "custom":
           if (!customStart || !customEnd) {
@@ -208,7 +197,7 @@ export default function DatabaseLogs() {
           exportParams.append('end', customEnd);
           break;
         default:
-          exportParams.append('date', selectedDate);
+          exportParams.append('period', 'today');
       }
 
       // Add selected columns
@@ -290,11 +279,7 @@ export default function DatabaseLogs() {
       // Generate filename
       let filename = `raw_telemetry_${vehicleId}`;
       switch (exportMode) {
-        case "selected": filename += `_${selectedDate}`; break;
         case "today": filename += `_today_${todayStr}`; break;
-        case "week": filename += `_last7days`; break;
-        case "month": filename += `_last30days`; break;
-        case "all": filename += `_all_time`; break;
         case "custom": filename += `_from_${customStart}_to_${customEnd}`; break;
       }
       filename += `.csv`;
@@ -383,11 +368,7 @@ export default function DatabaseLogs() {
               onChange={e => setExportMode(e.target.value)}
               className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition"
             >
-              <option value="selected">Selected Day</option>
               <option value="today">Today</option>
-              <option value="week">Last 7 Days</option>
-              <option value="month">Last 30 Days</option>
-              <option value="all">All Historical Data</option>
               <option value="custom">Custom Range</option>
             </select>
           </div>

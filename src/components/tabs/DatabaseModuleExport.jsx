@@ -17,8 +17,7 @@ export default function DatabaseModuleExport() {
   const today = new Date();
   const todayStr = fmtDate(today);
 
-  const [exportMode, setExportMode] = useState("selected");
-  const [selectedDate, setSelectedDate] = useState(todayStr);
+  const [exportMode, setExportMode] = useState("today");
   const [customStart, setCustomStart] = useState(todayStr);
   const [customEnd, setCustomEnd] = useState(todayStr);
   const [exporting, setExporting] = useState(false);
@@ -33,20 +32,13 @@ export default function DatabaseModuleExport() {
     switch (exportMode) {
       case "today":
         return "period=today";
-      case "week":
-        return "period=week";
-      case "month":
-        return "period=month";
-      case "all":
-        return "period=all";
       case "custom":
         if (!customStart || !customEnd) {
           throw new Error("Select both start and end dates");
         }
         return `start=${customStart}&end=${customEnd}`;
-      case "selected":
       default:
-        return `date=${selectedDate}`;
+        return "period=today";
     }
   };
 
@@ -67,6 +59,7 @@ export default function DatabaseModuleExport() {
       const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
       // Step 1: Get total count for progress tracking
+      setError("⏳ Counting total rows...");
       const countUrl = `/api/database-logs/${vehicleId}/export/${type}/count?${query}`;
       const countRes = await fetch(countUrl, { 
         headers: authHeaders,
@@ -83,10 +76,13 @@ export default function DatabaseModuleExport() {
       if (total === 0) {
         alert(`No ${type === 'cells' ? 'cell voltage' : 'temperature'} data available for the selected range`);
         setExporting(false);
+        setError(null);
         return;
       }
 
       // Step 2: Start the export with streaming
+      setError(`📊 Exporting ${total.toLocaleString()} rows of ${type === 'cells' ? 'cell voltage' : 'temperature'} data...`);
+      
       const exportUrl = `/api/database-logs/${vehicleId}/export/${type}?${query}`;
       
       const exportRes = await fetch(exportUrl, { 
@@ -97,6 +93,9 @@ export default function DatabaseModuleExport() {
       if (!exportRes.ok) {
         throw new Error(`Export failed (${exportRes.status})`);
       }
+
+      // Clear the status message
+      setError(null);
 
       // Get total from headers if available
       const totalFromHeader = exportRes.headers.get('X-Total-Rows');
@@ -188,36 +187,16 @@ export default function DatabaseModuleExport() {
               disabled={exporting}
               className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition disabled:opacity-50"
             >
-              <option value="selected">Selected Day</option>
               <option value="today">Today</option>
-              <option value="week">Last 7 Days</option>
-              <option value="month">Last 30 Days</option>
-              <option value="all">All Time</option>
               <option value="custom">Custom Range</option>
             </select>
           </div>
-
-          {exportMode === "selected" && (
-            <div className="flex items-center gap-3">
-              <label className="text-orange-300 font-medium min-w-32">
-                Date:
-              </label>
-              <input
-                type="date"
-                value={selectedDate}
-                max={todayStr}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                disabled={exporting}
-                className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition disabled:opacity-50"
-              />
-            </div>
-          )}
         </div>
 
         {exportMode === "custom" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-gray-800/30 rounded-lg border border-orange-500/20">
             <div className="flex items-center gap-3">
-              <label className="text-orange-300 font-medium">Start:</label>
+              <label className="text-orange-300 font-medium">Start Date:</label>
               <input
                 type="date"
                 value={customStart}
@@ -228,7 +207,7 @@ export default function DatabaseModuleExport() {
               />
             </div>
             <div className="flex items-center gap-3">
-              <label className="text-orange-300 font-medium">End:</label>
+              <label className="text-orange-300 font-medium">End Date:</label>
               <input
                 type="date"
                 value={customEnd}
@@ -337,18 +316,20 @@ export default function DatabaseModuleExport() {
           </div>
         )}
 
-        {/* Calculating message */}
-        {exporting && exportTotal === 0 && (
-          <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
-            <p className="text-blue-300 text-sm">
-              ⏳ Calculating total rows... Please wait.
-            </p>
-          </div>
-        )}
-
+        {/* Status messages */}
         {error && (
-          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-center">
-            <p className="text-red-400 font-medium">{error}</p>
+          <div className={`p-4 rounded-lg text-center ${
+            error.includes('⏳') || error.includes('📊') 
+              ? 'bg-blue-500/10 border border-blue-500/30' 
+              : 'bg-red-500/10 border border-red-500/30'
+          }`}>
+            <p className={`text-sm ${
+              error.includes('⏳') || error.includes('📊') 
+                ? 'text-blue-300' 
+                : 'text-red-400 font-medium'
+            }`}>
+              {error}
+            </p>
           </div>
         )}
       </div>
