@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowUpDown,
@@ -13,9 +13,31 @@ import axios from "axios";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 const PAGE_SIZE = 10;
 
-/* =========================
-   STATUS PILL COMPONENT
-========================= */
+// Create axios instance inside the file
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 15000,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+const columns = [
+  { key: "index", label: "S.No", sortable: false },
+  { key: "vehicle_type", label: "Vehicle Type", sortable: true },
+  { key: "capacity", label: "Capacity (T)", sortable: false },
+  { key: "vehicle_no", label: "Vehicle No", sortable: true },
+  { key: "customer", label: "Customer", sortable: true },
+  { key: "total_hours", label: "Total Hours", sortable: true },
+  { key: "total_kwh", label: "Total kWh", sortable: true },
+  { key: "avg_kwh", label: "Avg kWh/Hr", sortable: true },
+  { key: "status", label: "Status", sortable: true },
+  { key: "track", label: "Live Track", sortable: false },
+];
+
+/* ────────────────────────────────────────────────
+   Status Pill (unchanged – already memoized)
+───────────────────────────────────────────────── */
 const StatusPill = React.memo(({ status }) => {
   const styles = {
     online: "bg-green-500/20 text-green-300 border-green-500/40",
@@ -43,207 +65,186 @@ const StatusPill = React.memo(({ status }) => {
   );
 });
 
-/* =========================
-   TABLE COLUMNS CONFIG
-========================= */
-const columns = [
-  { key: "index", label: "S.No", sortable: false },
-  { key: "vehicle_type", label: "Vehicle Type", sortable: true },
-  { key: "capacity", label: "Capacity (T)", sortable: false },
-  { key: "vehicle_no", label: "Vehicle No", sortable: true },
-  { key: "customer", label: "Customer", sortable: true },
-  { key: "total_hours", label: "Total Hours", sortable: true },
-  { key: "total_kwh", label: "Total kWh", sortable: true },
-  { key: "avg_kwh", label: "Avg kWh/Hr", sortable: true },
-  { key: "status", label: "Status", sortable: true },
-  { key: "track", label: "Live Track", sortable: false },
-];
-
 export default function AdminDashboard() {
+  const navigate = useNavigate();
+
+  const user = useMemo(() => JSON.parse(localStorage.getItem("user") || "{}"), []);
+  const token = user?.token;
+
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+
+  const [searchInput, setSearchInput] = useState("");
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState(null); // ← Changed: no default sorting
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
+
   const [page, setPage] = useState(1);
 
-  const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  const token = user?.token;
+  // ─── Fetch data ────────────────────────────────────────
+  const fetchData = useCallback(async () => {
+    if (!token) return;
 
-  /* =========================
-     FETCH ADMIN SUMMARY DATA
-  ========================= */
-  const fetchData = async () => {
     setError("");
-    if (refreshing) setRefreshing(false);
     setLoading(true);
 
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/vehicle-master/admin-summary`, {
+      const res = await apiClient.get("/api/vehicle-master/admin-summary", {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const formattedData = (res.data || []).map((row) => ({
+      const formatted = res.data.map((row) => ({
         vehicle_master_id: row.vehicle_master_id,
         vehicle_type: row.vehicle_type?.trim() || "—",
         capacity: row.capacity ?? "—",
         vehicle_no: row.vehicle_no || "—",
         customer: row.customer || "—",
-        total_hours: row.total_hours !== null ? row.total_hours : "—",
-        total_kwh: row.total_kwh !== null ? row.total_kwh : "—",
-        avg_kwh: row.avg_kwh !== null ? row.avg_kwh : "—",
+        total_hours: row.total_hours ?? "—",
+        total_kwh: row.total_kwh ?? "—",
+        avg_kwh: row.avg_kwh ?? "—",
         status: row.status || "offline",
         last_seen: row.last_seen,
       }));
 
-      setRows(formattedData);
+      setRows(formatted);
     } catch (err) {
-      console.error("AdminDashboard fetch error:", err);
+      console.error("Admin summary fetch failed:", err);
       setError("Failed to load fleet data. Please try again.");
       setRows([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     if (!token) {
       setError("Authentication required. Redirecting to login...");
-      setTimeout(() => navigate("/login"), 2000);
-      setLoading(false);
+      setTimeout(() => navigate("/login"), 1800);
       return;
     }
     fetchData();
-  }, [token, navigate]);
+  }, [token, navigate, fetchData]);
 
-  /* =========================
-     BASE SORTED LIST (always by vehicle_master_id ASC)
-  ========================= */
-  const baseSortedRows = useMemo(() => {
-    return [...rows].sort((a, b) =>
-      Number(a.vehicle_master_id) - Number(b.vehicle_master_id)
+  // ─── Debounced search ──────────────────────────────────
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setQuery(searchInput.trim().toLowerCase());
+      setPage(1);
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // ─── Filtering ─────────────────────────────────────────
+  const filteredRows = useMemo(() => {
+    if (!query) return rows;
+
+    return rows.filter((row) =>
+      Object.values(row).some(
+        (val) =>
+          typeof val === "string" &&
+          val.toLowerCase().includes(query)
+      )
     );
-  }, [rows]);
+  }, [rows, query]);
 
-  /* =========================
-     ID → Permanent Rank Map (fast lookup)
-  ========================= */
-  const idToRank = useMemo(() => {
-    const map = new Map();
-    baseSortedRows.forEach((row, index) => {
-      map.set(row.vehicle_master_id, index + 1);
+  // ─── Sorting ───────────────────────────────────────────
+  const sortedRows = useMemo(() => {
+    if (!sortConfig.key) return filteredRows;
+
+    const data = [...filteredRows];
+
+    data.sort((a, b) => {
+      let valA = a[sortConfig.key];
+      let valB = b[sortConfig.key];
+
+      // Handle null/undefined/"—"
+      if (valA == null || valA === "—") return 1;
+      if (valB == null || valB === "—") return -1;
+
+      // Numeric comparison when possible
+      const numA = Number(valA);
+      const numB = Number(valB);
+
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return sortConfig.direction === "asc" ? numA - numB : numB - numA;
+      }
+
+      // String fallback (with natural sort)
+      return sortConfig.direction === "asc"
+        ? String(valA).localeCompare(String(valB), undefined, { numeric: true })
+        : String(valB).localeCompare(String(valA), undefined, { numeric: true });
     });
-    return map;
-  }, [baseSortedRows]);
-
-  /* =========================
-     PROCESSED DATA (search + optional user sort)
-  ========================= */
-  const processedData = useMemo(() => {
-    let data = [...baseSortedRows];
-
-    // Apply search filter
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      data = data.filter((row) =>
-        ["customer", "vehicle_type", "vehicle_no"].some((field) =>
-          String(row[field] || "").toLowerCase().includes(q)
-        )
-      );
-    }
-
-    // Apply user-selected sort ONLY if sort is set
-    if (sort?.key) {
-      const multiplier = sort.dir === "asc" ? 1 : -1;
-
-      data.sort((a, b) => {
-        let valA = a[sort.key];
-        let valB = b[sort.key];
-
-        switch (sort.key) {
-          case "total_hours":
-          case "total_kwh":
-          case "avg_kwh":
-          case "capacity":
-            valA = valA === "—" ? -Infinity : Number(valA);
-            valB = valB === "—" ? -Infinity : Number(valB);
-            break;
-
-          case "status":
-            const order = { online: 0, idle: 1, offline: 2 };
-            valA = order[valA] ?? 3;
-            valB = order[valB] ?? 3;
-            break;
-
-          default:
-            valA = String(valA || "").toLowerCase();
-            valB = String(valB || "").toLowerCase();
-        }
-
-        return (valA > valB ? 1 : valA < valB ? -1 : 0) * multiplier;
-      });
-    }
 
     return data;
-  }, [baseSortedRows, query, sort]);
+  }, [filteredRows, sortConfig]);
 
-  /* =========================
-     PAGINATION
-  ========================= */
-  const totalPages = Math.max(1, Math.ceil(processedData.length / PAGE_SIZE));
+  // ─── Pagination ────────────────────────────────────────
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
 
   useEffect(() => {
-    if (page > totalPages && totalPages > 0) setPage(totalPages);
+    if (page > totalPages && totalPages > 0) {
+      setPage(totalPages);
+    }
   }, [page, totalPages]);
 
   const paginatedRows = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
-    return processedData.slice(start, start + PAGE_SIZE);
-  }, [processedData, page]);
+    return sortedRows.slice(start, start + PAGE_SIZE);
+  }, [sortedRows, page]);
 
-  /* =========================
-     REFRESH HANDLER
-  ========================= */
-  const onRefresh = async () => {
+  // ─── Permanent index (S.No) based on original order ───
+  const idToRank = useMemo(() => {
+    const map = new Map();
+    rows.forEach((row, idx) => {
+      map.set(row.vehicle_master_id, idx + 1);
+    });
+    return map;
+  }, [rows]);
+
+  // ─── Handlers ──────────────────────────────────────────
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
-    await fetchData();
-    setRefreshing(false);
-  };
+    fetchData().finally(() => setRefreshing(false));
+  }, [fetchData]);
 
-  /* =========================
-     SORT HANDLER
-  ========================= */
-  const onSort = (key) => {
+  const onSort = useCallback((key) => {
     if (!columns.find((c) => c.key === key)?.sortable) return;
 
-    setSort((prev) => {
-      // If clicking the same column → toggle direction
-      if (prev?.key === key) {
-        return { key, dir: prev.dir === "asc" ? "desc" : "asc" };
-      }
-      // New column → start with asc
-      return { key, dir: "asc" };
-    });
-  };
+    setSortConfig((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
+    }));
+  }, []);
 
-  /* =========================
-     ROW CLICK → Vehicle Details
-  ========================= */
-  const handleRowClick = (row) => {
-    localStorage.setItem(
-      "selectedVehicle",
-      JSON.stringify({
-        id: row.vehicle_master_id,
-        vehicleNo: row.vehicle_no,
-        vehicleType: row.vehicle_type,
-        customer: row.customer,
-      })
-    );
-    navigate(`/vehicle/${row.vehicle_master_id}`);
-  };
+  const handleRowClick = useCallback(
+    (row) => {
+      localStorage.setItem(
+        "selectedVehicle",
+        JSON.stringify({
+          id: row.vehicle_master_id,
+          vehicleNo: row.vehicle_no,
+          vehicleType: row.vehicle_type,
+          customer: row.customer,
+        })
+      );
+      navigate(`/vehicle/${row.vehicle_master_id}`);
+    },
+    [navigate]
+  );
 
+  const handleTrackClick = useCallback(
+    (e, vehicleId) => {
+      e.stopPropagation();
+      navigate(`/vehicle/${vehicleId}/track`);
+    },
+    [navigate]
+  );
+
+  // ───────────────────────────────────────────────────────
+  //  Render
+  // ───────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-950 to-black text-white px-6 py-12">
       <div className="max-w-7xl mx-auto">
@@ -263,11 +264,8 @@ export default function AdminDashboard() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-orange-400/70" />
             <input
               type="text"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPage(1);
-              }}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search by customer, vehicle type, or registration number..."
               className="w-full pl-12 pr-6 py-4 rounded-2xl bg-gray-800/50 border border-orange-500/30 focus:border-orange-500 focus:outline-none text-white placeholder-orange-300/50 transition"
             />
@@ -276,18 +274,17 @@ export default function AdminDashboard() {
           <button
             onClick={onRefresh}
             disabled={refreshing || loading}
-            className="flex items-center justify-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 disabled:opacity-70 transition font-medium"
+            className="flex items-center justify-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 disabled:opacity-70 transition font-medium min-w-[160px]"
           >
             {refreshing ? (
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : (
               <RefreshCcw className="w-5 h-5" />
             )}
-            Refresh Data
+            Refresh
           </button>
         </div>
 
-        {/* Error Alert */}
         {error && (
           <div className="mb-6 p-4 bg-red-900/30 border border-red-500/50 rounded-2xl flex items-center gap-3">
             <AlertCircle className="w-6 h-6 text-red-400 flex-shrink-0" />
@@ -317,8 +314,8 @@ export default function AdminDashboard() {
                         {col.sortable && (
                           <ArrowUpDown
                             className={`w-4 h-4 transition-transform ${
-                              sort?.key === col.key
-                                ? sort.dir === "asc"
+                              sortConfig.key === col.key
+                                ? sortConfig.direction === "asc"
                                   ? "rotate-0"
                                   : "rotate-180"
                                 : "opacity-50"
@@ -359,9 +356,7 @@ export default function AdminDashboard() {
                           {row.vehicle_type}
                         </span>
                       </td>
-                      <td className="px-6 py-5 text-orange-200">
-                        {row.capacity}
-                      </td>
+                      <td className="px-6 py-5 text-orange-200">{row.capacity}</td>
                       <td className="px-6 py-5 font-semibold">{row.vehicle_no}</td>
                       <td className="px-6 py-5">{row.customer}</td>
                       <td className="px-6 py-5">
@@ -378,10 +373,7 @@ export default function AdminDashboard() {
                       </td>
                       <td className="px-6 py-5">
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/vehicle/${row.vehicle_master_id}/track`);
-                          }}
+                          onClick={(e) => handleTrackClick(e, row.vehicle_master_id)}
                           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-600/20 hover:bg-orange-600/40 text-orange-300 transition font-medium text-sm"
                         >
                           <MapPin className="w-4 h-4" />
@@ -399,22 +391,21 @@ export default function AdminDashboard() {
           {totalPages > 1 && (
             <div className="flex items-center justify-between px-6 py-4 bg-black/30 border-t border-orange-500/20">
               <p className="text-sm text-orange-300/70">
-                Showing {(page - 1) * PAGE_SIZE + 1} to{" "}
-                {Math.min(page * PAGE_SIZE, processedData.length)} of{" "}
-                {processedData.length} vehicles
+                Showing {(page - 1) * PAGE_SIZE + 1}–
+                {Math.min(page * PAGE_SIZE, sortedRows.length)} of {sortedRows.length} vehicles
               </p>
               <div className="flex gap-2">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  className="px-5 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >
                   Previous
                 </button>
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
-                  className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  className="px-5 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >
                   Next
                 </button>
