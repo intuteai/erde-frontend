@@ -121,24 +121,17 @@ export default function BatteryAnalytics() {
           <Section title="ODO Summary (Last 30 Days)">
             <Stat label="Energy Used" value={odo.energyUsed} unit="kWh" />
             <Stat label="Max DC Current" value={odo.maxCurrent} unit="A" />
-            <Stat
-              label="Max Cell Temperature"
-              value={odo.maxTemp}
-              unit="°C"
-              warn={45}
-              danger={55}
-            />
-            <Stat
-              label="Avg Cell Temperature"
-              value={odo.avgTemp}
-              unit="°C"
-              warn={42}
-              danger={52}
-            />
+            <Stat label="Max Cell Temperature" value={odo.maxTemp} unit="°C" warn={45} danger={55} />
+            <Stat label="Avg Cell Temperature" value={odo.avgTemp} unit="°C" warn={42} danger={52} />
           </Section>
 
           <Section title="Latest Day">
             <Stat label="Energy Used" value={latestTrip.total_kwh_consumed} unit="kWh" />
+            <Stat
+              label="Max DC Current"
+              value={latestTrip.max_op_dc_current_a}
+              unit="A"
+            />
             <Stat
               label="Max Cell Temperature"
               value={latestTrip.max_cell_temp_c}
@@ -197,11 +190,25 @@ export default function BatteryAnalytics() {
                   band={{ warn: 42, danger: 52 }}
                 />
               </ChartCard>
+
+              <ChartCard title="Max DC Current Trend (A)">
+                <LineChart
+                  data={chartData.map(d => ({
+                    x: d.day,
+                    y: Number(d.max_op_dc_current_a ?? 0),
+                  }))}
+                />
+              </ChartCard>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Section title={`Data on ${selectedDate}`}>
                 <Stat label="Energy Used" value={latestTrip.total_kwh_consumed} unit="kWh" />
+                <Stat
+                  label="Max DC Current"
+                  value={latestTrip.max_op_dc_current_a}
+                  unit="A"
+                />
                 <Stat
                   label="Max Cell Temperature"
                   value={latestTrip.max_cell_temp_c}
@@ -221,18 +228,10 @@ export default function BatteryAnalytics() {
               <ChartCard title={`Battery Metrics on ${selectedDate}`}>
                 <BarChart
                   data={[
-                    {
-                      x: "Energy",
-                      y: Number(latestTrip.total_kwh_consumed ?? 0),
-                    },
-                    {
-                      x: "Max Temp",
-                      y: Number(latestTrip.max_cell_temp_c ?? 0),
-                    },
-                    {
-                      x: "Avg Temp",
-                      y: Number(latestTrip.avg_cell_temp_c ?? 0),
-                    },
+                    { x: "Energy", y: Number(latestTrip.total_kwh_consumed ?? 0) },
+                    { x: "DC Current", y: Number(latestTrip.max_op_dc_current_a ?? 0) },
+                    { x: "Max Temp", y: Number(latestTrip.max_cell_temp_c ?? 0) },
+                    { x: "Avg Temp", y: Number(latestTrip.avg_cell_temp_c ?? 0) },
                   ]}
                   band={{ warn: 45, danger: 55 }}
                 />

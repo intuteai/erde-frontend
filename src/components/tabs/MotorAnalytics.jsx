@@ -42,12 +42,14 @@ export default function MotorAnalytics() {
 
   /* ===== ODO SUMMARY (ONLY FOR 30 DAYS VIEW) ===== */
   const odo = useMemo(() => {
-    if (!data.length || selectedDate) return { maxPower: 0, maxTorque: 0, maxTemp: 0 };
+    if (!data.length || selectedDate)
+      return { maxPower: 0, maxTorque: 0, maxTemp: 0, maxRpm: 0 };
 
     return {
       maxPower: Math.max(...data.map(d => Number(d.max_op_power_kw ?? 0))),
       maxTorque: Math.max(...data.map(d => Number(d.max_op_torque_nm ?? 0))),
       maxTemp: Math.max(...data.map(d => Number(d.max_motor_temp_c ?? 0))),
+      maxRpm: Math.max(...data.map(d => Number(d.max_motor_speed_rpm ?? 0))),
     };
   }, [data, selectedDate]);
 
@@ -117,6 +119,7 @@ export default function MotorAnalytics() {
               warn={80}
               danger={95}
             />
+            <Stat label="Max Motor Speed" value={odo.maxRpm} unit="RPM" />
           </Section>
 
           <Section title="Last Day">
@@ -136,6 +139,15 @@ export default function MotorAnalytics() {
               unit="°C"
               warn={80}
               danger={95}
+            />
+            <Stat
+              label="Max Motor Speed"
+              value={
+                latestTrip.max_motor_speed_rpm ??
+                latestTrip.max_motor_speed_last_trip_rpm ??
+                0
+              }
+              unit="RPM"
             />
           </Section>
         </div>
@@ -171,6 +183,15 @@ export default function MotorAnalytics() {
                   band={{ warn: 80, danger: 95 }}
                 />
               </ChartCard>
+
+              <ChartCard title="Max Motor Speed Trend (RPM)">
+                <LineChart
+                  data={chartData.map(d => ({
+                    x: d.day,
+                    y: Number(d.max_motor_speed_rpm ?? 0),
+                  }))}
+                />
+              </ChartCard>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -192,13 +213,23 @@ export default function MotorAnalytics() {
                   warn={80}
                   danger={95}
                 />
+                <Stat
+                  label="Max Motor Speed"
+                  value={
+                    latestTrip.max_motor_speed_rpm ??
+                    latestTrip.max_motor_speed_last_trip_rpm ??
+                    0
+                  }
+                  unit="RPM"
+                />
               </Section>
-              
+
               <ChartCard title={`Motor Performance on ${selectedDate}`}>
                 <BarChart
                   data={[
                     { x: "Power", y: Number(latestTrip.max_op_power_kw ?? 0) },
                     { x: "Torque", y: Number(latestTrip.max_op_torque_nm ?? 0) },
+                    { x: "RPM", y: Number(latestTrip.max_motor_speed_rpm ?? 0) },
                     { x: "Temp", y: Number(latestTrip.max_motor_temp_c ?? 0) },
                   ]}
                   band={{ warn: 80, danger: 95 }}
@@ -237,6 +268,12 @@ function Stat({ label, value, unit, warn, danger }) {
       color = "text-yellow-400";
       bgColor = "bg-yellow-500/10";
     }
+  }
+
+  // Special handling for RPM (no warning/danger thresholds)
+  if (label === "Max Motor Speed") {
+    color = "text-cyan-400";
+    bgColor = "bg-cyan-500/10";
   }
 
   return (
@@ -283,7 +320,6 @@ function LineChart({ data, band }) {
     return `${x},${y}`;
   }).join(" ");
 
-  // Create gradient area under line
   const areaPoints = `${pad},${height - pad} ${points} ${width - pad},${height - pad}`;
 
   return (
@@ -374,7 +410,8 @@ function BarChart({ data, band }) {
   const values = data.map(d => d.y);
   const maxY = Math.max(...values, band?.danger || 100, 10);
 
-  const barWidth = (width - pad * 2) / data.length - 30;
+  // Adjust bar width dynamically based on number of bars
+  const barWidth = (width - pad * 2) / data.length - 20;
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
@@ -383,7 +420,7 @@ function BarChart({ data, band }) {
           let color1 = "rgb(251,146,60)";
           let color2 = "rgb(251,191,36)";
 
-          if (band && d.x.includes("Temp")) {
+          if (d.x === "Temp" && band) {
             if (d.y >= band.danger) {
               color1 = "rgb(239,68,68)";
               color2 = "rgb(220,38,38)";
@@ -391,6 +428,9 @@ function BarChart({ data, band }) {
               color1 = "rgb(234,179,8)";
               color2 = "rgb(202,138,4)";
             }
+          } else if (d.x === "RPM") {
+            color1 = "rgb(34,211,238)"; // cyan-400
+            color2 = "rgb(6,182,212)";  // cyan-500
           }
 
           return (
@@ -419,7 +459,7 @@ function BarChart({ data, band }) {
         const val = d.y;
         const barHeight = (val / maxY) * (height - pad * 2);
         const y = height - pad - barHeight;
-        const x = pad + i * (barWidth + 30) + 15;
+        const x = pad + i * (barWidth + 20) + 10;
 
         return (
           <g key={i}>
@@ -458,10 +498,10 @@ function BarChart({ data, band }) {
               y={y - 10}
               textAnchor="middle"
               fontSize="15"
-              fill="rgb(251,146,60)"
+              fill={d.x === "RPM" ? "rgb(34,211,238)" : "rgb(251,146,60)"}
               fontWeight="bold"
             >
-              {val.toFixed(1)}
+              {val.toFixed(0)}
             </text>
           </g>
         );

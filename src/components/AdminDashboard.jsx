@@ -13,7 +13,7 @@ import axios from "axios";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 const PAGE_SIZE = 10;
 
-// Create axios instance inside the file
+// Axios instance
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
@@ -35,9 +35,7 @@ const columns = [
   { key: "track", label: "Live Track", sortable: false },
 ];
 
-/* ────────────────────────────────────────────────
-   Status Pill (unchanged – already memoized)
-───────────────────────────────────────────────── */
+/* Status Pill – memoized */
 const StatusPill = React.memo(({ status }) => {
   const styles = {
     online: "bg-green-500/20 text-green-300 border-green-500/40",
@@ -79,10 +77,14 @@ export default function AdminDashboard() {
   const [searchInput, setSearchInput] = useState("");
   const [query, setQuery] = useState("");
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
-
   const [page, setPage] = useState(1);
 
-  // ─── Fetch data ────────────────────────────────────────
+  // Analytics filter state
+  const [analyticsMode, setAnalyticsMode] = useState("all"); // "all" | "today" | "custom"
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  // ─── Fetch base list + optional analytics ─────────────────
   const fetchData = useCallback(async () => {
     if (!token) return;
 
@@ -90,11 +92,12 @@ export default function AdminDashboard() {
     setLoading(true);
 
     try {
+      // 1. Always get base vehicle list (summary)
       const res = await apiClient.get("/api/vehicle-master/admin-summary", {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const formatted = res.data.map((row) => ({
+      let baseRows = res.data.map((row) => ({
         vehicle_master_id: row.vehicle_master_id,
         vehicle_type: row.vehicle_type?.trim() || "—",
         capacity: row.capacity ?? "—",
@@ -107,16 +110,75 @@ export default function AdminDashboard() {
         last_seen: row.last_seen,
       }));
 
-      setRows(formatted);
+      // 2. Skip analytics if custom mode and dates are incomplete
+      if (analyticsMode === "custom" && (!fromDate || !toDate)) {
+        setRows(baseRows);
+        setLoading(false);
+        return;
+      }
+
+      // 3. Fetch analytics only when needed
+      if (analyticsMode !== "all") {
+        const analyticsMap = await fetchAnalyticsForVehicles(baseRows);
+        baseRows = baseRows.map((row) => {
+          const analytics = analyticsMap.get(row.vehicle_master_id);
+          if (!analytics) return row;
+
+          return {
+            ...row,
+            total_hours: analytics.running_hours ?? "—",
+            total_kwh: analytics.kwh_consumed ?? "—",
+            avg_kwh: analytics.avg_kwh ?? "—",
+          };
+        });
+      }
+
+      setRows(baseRows);
     } catch (err) {
-      console.error("Admin summary fetch failed:", err);
+      console.error("Admin summary / analytics fetch failed:", err);
       setError("Failed to load fleet data. Please try again.");
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, analyticsMode, fromDate, toDate]);
 
+  // ─── Helper: Fetch analytics for multiple vehicles ────────
+  const fetchAnalyticsForVehicles = async (vehicles) => {
+    // IMPORTANT NOTE:
+    // Currently makes one request per vehicle → scales poorly with large fleets (50+ vehicles)
+    // Future improvement options:
+    // 1. Create batch endpoint on backend: /api/vehicles/analytics/batch?ids=1,2,3...
+    // 2. Use Promise.allSettled + limit concurrency (p-limit / p-queue)
+    const requests = vehicles.map((v) => {
+      let url = `/api/vehicles/${v.vehicle_master_id}/analytics`;
+
+      if (analyticsMode === "today") {
+        url += "?mode=today";
+      } else if (analyticsMode === "custom" && fromDate && toDate) {
+        url += `?from=${fromDate}&to=${toDate}`;
+      } else {
+        return Promise.resolve(null);
+      }
+
+      return apiClient
+        .get(url, { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => ({
+          id: v.vehicle_master_id,
+          ...res.data,
+        }))
+        .catch(() => null);
+    });
+
+    const results = await Promise.all(requests);
+
+    return results.reduce((map, r) => {
+      if (r) map.set(r.id, r);
+      return map;
+    }, new Map());
+  };
+
+  // Single effect — covers initial load + filter changes
   useEffect(() => {
     if (!token) {
       setError("Authentication required. Redirecting to login...");
@@ -124,9 +186,9 @@ export default function AdminDashboard() {
       return;
     }
     fetchData();
-  }, [token, navigate, fetchData]);
+  }, [token, analyticsMode, fromDate, toDate, navigate, fetchData]);
 
-  // ─── Debounced search ──────────────────────────────────
+  // ─── Debounced search ─────────────────────────────────────
   useEffect(() => {
     const timer = setTimeout(() => {
       setQuery(searchInput.trim().toLowerCase());
@@ -136,7 +198,7 @@ export default function AdminDashboard() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // ─── Filtering ─────────────────────────────────────────
+  // ─── Filtering ────────────────────────────────────────────
   const filteredRows = useMemo(() => {
     if (!query) return rows;
 
@@ -144,12 +206,12 @@ export default function AdminDashboard() {
       Object.values(row).some(
         (val) =>
           typeof val === "string" &&
-          val.toLowerCase().includes(query)
+          val?.toLowerCase?.().includes(query)
       )
     );
   }, [rows, query]);
 
-  // ─── Sorting ───────────────────────────────────────────
+  // ─── Sorting ──────────────────────────────────────────────
   const sortedRows = useMemo(() => {
     if (!sortConfig.key) return filteredRows;
 
@@ -159,11 +221,9 @@ export default function AdminDashboard() {
       let valA = a[sortConfig.key];
       let valB = b[sortConfig.key];
 
-      // Handle null/undefined/"—"
       if (valA == null || valA === "—") return 1;
       if (valB == null || valB === "—") return -1;
 
-      // Numeric comparison when possible
       const numA = Number(valA);
       const numB = Number(valB);
 
@@ -171,7 +231,6 @@ export default function AdminDashboard() {
         return sortConfig.direction === "asc" ? numA - numB : numB - numA;
       }
 
-      // String fallback (with natural sort)
       return sortConfig.direction === "asc"
         ? String(valA).localeCompare(String(valB), undefined, { numeric: true })
         : String(valB).localeCompare(String(valA), undefined, { numeric: true });
@@ -180,7 +239,7 @@ export default function AdminDashboard() {
     return data;
   }, [filteredRows, sortConfig]);
 
-  // ─── Pagination ────────────────────────────────────────
+  // ─── Pagination ───────────────────────────────────────────
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
 
   useEffect(() => {
@@ -194,7 +253,6 @@ export default function AdminDashboard() {
     return sortedRows.slice(start, start + PAGE_SIZE);
   }, [sortedRows, page]);
 
-  // ─── Permanent index (S.No) based on original order ───
   const idToRank = useMemo(() => {
     const map = new Map();
     rows.forEach((row, idx) => {
@@ -203,7 +261,7 @@ export default function AdminDashboard() {
     return map;
   }, [rows]);
 
-  // ─── Handlers ──────────────────────────────────────────
+  // ─── Handlers ─────────────────────────────────────────────
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchData().finally(() => setRefreshing(false));
@@ -242,9 +300,7 @@ export default function AdminDashboard() {
     [navigate]
   );
 
-  // ───────────────────────────────────────────────────────
-  //  Render
-  // ───────────────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-950 to-black text-white px-6 py-12">
       <div className="max-w-7xl mx-auto">
@@ -259,30 +315,106 @@ export default function AdminDashboard() {
         </div>
 
         {/* Controls */}
-        <div className="flex flex-col md:flex-row gap-4 mb-8">
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-orange-400/70" />
+        <div className="flex flex-col gap-6 mb-8">
+          {/* Search Bar */}
+          <div className="relative w-full">
+            <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-orange-400/70" />
             <input
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search by customer, vehicle type, or registration number..."
-              className="w-full pl-12 pr-6 py-4 rounded-2xl bg-gray-800/50 border border-orange-500/30 focus:border-orange-500 focus:outline-none text-white placeholder-orange-300/50 transition"
+              placeholder="Search by vehicle number, type, customer..."
+              className="w-full pl-14 pr-6 py-3.5 rounded-xl bg-gray-800/50 border border-orange-500/30 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 focus:outline-none text-white placeholder-orange-300/50 transition shadow-lg"
             />
           </div>
 
-          <button
-            onClick={onRefresh}
-            disabled={refreshing || loading}
-            className="flex items-center justify-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 disabled:opacity-70 transition font-medium min-w-[160px]"
-          >
-            {refreshing ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <RefreshCcw className="w-5 h-5" />
+          {/* Filter Row */}
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            {/* Analytics Mode Buttons */}
+            <div className="flex items-center gap-3 bg-gray-800/40 p-1.5 rounded-xl border border-orange-500/20 w-fit">
+              <button
+                onClick={() => {
+                  setAnalyticsMode("all");
+                  setFromDate("");
+                  setToDate("");
+                }}
+                className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  analyticsMode === "all"
+                    ? "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg shadow-orange-500/30"
+                    : "text-orange-300 hover:text-orange-200 hover:bg-gray-700/50"
+                }`}
+              >
+                All Time
+              </button>
+
+              <button
+                onClick={() => {
+                  setAnalyticsMode("today");
+                  setFromDate("");
+                  setToDate("");
+                }}
+                className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  analyticsMode === "today"
+                    ? "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg shadow-orange-500/30"
+                    : "text-orange-300 hover:text-orange-200 hover:bg-gray-700/50"
+                }`}
+              >
+                Today
+              </button>
+
+              <button
+                onClick={() => setAnalyticsMode("custom")}
+                className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  analyticsMode === "custom"
+                    ? "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg shadow-orange-500/30"
+                    : "text-orange-300 hover:text-orange-200 hover:bg-gray-700/50"
+                }`}
+              >
+                Date Range
+              </button>
+            </div>
+
+            {/* Date Range Picker */}
+            {analyticsMode === "custom" && (
+              <div className="flex items-center gap-3 bg-gray-800/40 p-3 rounded-xl border border-orange-500/20 w-fit">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-orange-300/70 font-medium px-1">From</label>
+                  <input
+                    type="date"
+                    value={fromDate}
+                    onChange={(e) => setFromDate(e.target.value)}
+                    className="px-4 py-2 rounded-lg bg-gray-900/50 border border-orange-500/30 text-orange-100 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition text-sm"
+                  />
+                </div>
+                <div className="flex items-center mt-5">
+                  <div className="w-8 h-px bg-orange-500/40"></div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-orange-300/70 font-medium px-1">To</label>
+                  <input
+                    type="date"
+                    value={toDate}
+                    onChange={(e) => setToDate(e.target.value)}
+                    className="px-4 py-2 rounded-lg bg-gray-900/50 border border-orange-500/30 text-orange-100 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition text-sm"
+                  />
+                </div>
+              </div>
             )}
-            Refresh
-          </button>
+
+            {/* Refresh Button */}
+            <button
+              onClick={onRefresh}
+              disabled={refreshing || loading}
+              className="flex items-center justify-center gap-3 px-6 py-3 rounded-xl bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 disabled:opacity-70 transition font-medium shadow-lg shadow-orange-500/20 md:ml-auto"
+            >
+              {refreshing ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <RefreshCcw className="w-5 h-5" />
+              )}
+              Refresh
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -292,7 +424,18 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Table */}
+        <p className="text-sm text-orange-300/70 mb-4">
+          Showing data for:{" "}
+          {analyticsMode === "all"
+            ? "All Time"
+            : analyticsMode === "today"
+            ? "Today"
+            : fromDate && toDate
+            ? `${fromDate} → ${toDate}`
+            : "Select date range"}
+        </p>
+
+        {/* Table + rest remains the same */}
         <div className="rounded-2xl overflow-hidden border border-orange-500/20 bg-gray-800/30 backdrop-blur">
           <div className="overflow-x-auto">
             <table className="w-full">

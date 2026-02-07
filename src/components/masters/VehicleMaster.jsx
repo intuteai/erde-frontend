@@ -45,11 +45,19 @@ export default function VehicleMaster() {
   const [vcus, setVcus] = useState([]);
   const [hmis, setHmis] = useState([]);
 
-  // Search inputs for custom dropdowns
+  // Selected VCU / HMI snapshot
+  const [selectedVcu, setSelectedVcu] = useState(null);
+  const [selectedHmi, setSelectedHmi] = useState(null);
+
+  // Search inputs
   const [vcuSearch, setVcuSearch] = useState("");
   const [hmiSearch, setHmiSearch] = useState("");
   const [showVcuList, setShowVcuList] = useState(false);
   const [showHmiList, setShowHmiList] = useState(false);
+
+  // Unassign flags
+  const [vcuUnassigned, setVcuUnassigned] = useState(false);
+  const [hmiUnassigned, setHmiUnassigned] = useState(false);
 
   const [form, setForm] = useState({
     vehicle_unique_id: "",
@@ -116,6 +124,108 @@ export default function VehicleMaster() {
     fetchDropdowns();
   }, []);
 
+  // Sync selected VCU
+  useEffect(() => {
+    if (!vcus.length) return;
+
+    if (!form.vcu_id && vcuUnassigned) {
+      setSelectedVcu(null);
+      setVcuSearch("");
+      setVcuUnassigned(false);
+      return;
+    }
+
+    if (!form.vcu_id) return;
+
+    if (selectedVcu?.vcu_id === Number(form.vcu_id)) return;
+
+    const vcu = vcus.find((v) => v.vcu_id === Number(form.vcu_id));
+    if (!vcu) return;
+
+    setSelectedVcu(vcu);
+    setVcuSearch(vcu.serial_number || "");
+  }, [form.vcu_id, vcus, selectedVcu, vcuUnassigned]);
+
+  // Sync selected HMI
+  useEffect(() => {
+    if (!hmis.length) return;
+
+    if (!form.hmi_id && hmiUnassigned) {
+      setSelectedHmi(null);
+      setHmiSearch("");
+      setHmiUnassigned(false);
+      return;
+    }
+
+    if (!form.hmi_id) return;
+
+    if (selectedHmi?.hmi_id === Number(form.hmi_id)) return;
+
+    const hmi = hmis.find((h) => h.hmi_id === Number(form.hmi_id));
+    if (!hmi) return;
+
+    setSelectedHmi(hmi);
+    setHmiSearch(hmi.imei_number || "");
+  }, [form.hmi_id, hmis, selectedHmi, hmiUnassigned]);
+
+  // VCU make+model snapshot
+  useEffect(() => {
+    // Explicit unassign → clear snapshot
+    if (!form.vcu_id && vcuUnassigned) {
+      setForm((prev) => ({ ...prev, vcu_make_model: "" }));
+      return;
+    }
+
+    // Edit mode + same VCU → restore original snapshot
+    if (editing && Number(form.vcu_id) === Number(editing.vcu_id)) {
+      setForm((prev) => ({
+        ...prev,
+        vcu_make_model: editing.vcu_make_model || "",
+      }));
+      return;
+    }
+
+    // New selection or changed VCU → derive from master
+    if (!form.vcu_id) return;
+
+    const vcu = vcus.find((v) => v.vcu_id === Number(form.vcu_id));
+    if (!vcu) return;
+
+    setForm((prev) => ({
+      ...prev,
+      vcu_make_model: `${vcu.vcu_make || ""} ${vcu.vcu_model || ""}`.trim(),
+    }));
+  }, [form.vcu_id, vcus, editing, vcuUnassigned]);
+
+  // HMI make+model snapshot
+  useEffect(() => {
+    // Explicit unassign → clear snapshot
+    if (!form.hmi_id && hmiUnassigned) {
+      setForm((prev) => ({ ...prev, hmi_make_model: "" }));
+      return;
+    }
+
+    // Edit mode + same HMI → restore original snapshot
+    if (editing && Number(form.hmi_id) === Number(editing.hmi_id)) {
+      setForm((prev) => ({
+        ...prev,
+        hmi_make_model: editing.hmi_make_model || "",
+      }));
+      return;
+    }
+
+    // New selection or changed HMI → derive from master
+    if (!form.hmi_id) return;
+
+    const hmi = hmis.find((h) => h.hmi_id === Number(form.hmi_id));
+    if (!hmi) return;
+
+    setForm((prev) => ({
+      ...prev,
+      hmi_make_model: `${hmi.hmi_make || ""} ${hmi.hmi_model || ""}`.trim(),
+    }));
+  }, [form.hmi_id, hmis, editing, hmiUnassigned]);
+
   // Search filter for table
   const filtered = useMemo(() => {
     if (!query) return rows;
@@ -128,8 +238,16 @@ export default function VehicleMaster() {
   // Open new vehicle modal
   const openNew = () => {
     setEditing(null);
+    setSelectedVcu(null);
+    setSelectedHmi(null);
+    setVcuSearch("");
+    setHmiSearch("");
+    setVcuUnassigned(false);
+    setHmiUnassigned(false);
+
     const year = new Date().getFullYear().toString().slice(2);
     const nextNum = String(rows.length + 1).padStart(4, "0");
+
     setForm({
       vehicle_unique_id: `ERDE-${year}-${nextNum}`,
       vehicle_reg_no: "",
@@ -155,8 +273,6 @@ export default function VehicleMaster() {
       motor_cooling_details: "",
       date_of_deployment: new Date().toISOString().split("T")[0],
     });
-    setVcuSearch("");
-    setHmiSearch("");
     setShowModal(true);
   };
 
@@ -164,8 +280,17 @@ export default function VehicleMaster() {
   const openEdit = (r) => {
     setEditing(r);
 
-    const selectedVcu = vcus.find((v) => v.vcu_id === r.vcu_id);
-    const selectedHmi = hmis.find((h) => h.hmi_id === r.hmi_id);
+    const vcu = vcus.find((v) => v.vcu_id === r.vcu_id);
+    const hmi = hmis.find((h) => h.hmi_id === r.hmi_id);
+
+    setSelectedVcu(vcu || null);
+    setSelectedHmi(hmi || null);
+
+    setVcuSearch(vcu?.serial_number || "");
+    setHmiSearch(hmi?.imei_number || "");
+
+    setVcuUnassigned(false);
+    setHmiUnassigned(false);
 
     setForm({
       vehicle_unique_id: r.vehicle_unique_id,
@@ -193,80 +318,67 @@ export default function VehicleMaster() {
       date_of_deployment: r.date_of_deployment || "",
     });
 
-    setVcuSearch(selectedVcu?.serial_number || "");
-    setHmiSearch(selectedHmi?.imei_number || "");
     setShowModal(true);
   };
 
-  // VCU / HMI options logic remains the same
   const getVcuOptions = () => {
-    let available = vcus;
+    let available;
 
     if (!editing) {
       available = vcus.filter((v) => !v.is_assigned);
     } else {
-      const current = vcus.find((v) => v.vcu_id === parseInt(form.vcu_id));
       const free = vcus.filter((v) => !v.is_assigned);
-      available = [...free, current].filter(Boolean);
+      const current = vcus.find((v) => v.vcu_id === Number(form.vcu_id));
+
+      const map = new Map();
+      [...free, current].filter(Boolean).forEach((v) => map.set(v.vcu_id, v));
+
+      available = Array.from(map.values());
     }
 
     return available.map((v) => ({
       value: v.vcu_id,
-      label: v.serial_number || `ID: ${v.vcu_id}`,
       serial: v.serial_number,
-      makeModel: `${v.vcu_make || ""} ${v.vcu_model || ""}`.trim(),
-      isCurrent: editing && v.vcu_id === parseInt(form.vcu_id),
+      isCurrent: editing && v.vcu_id === Number(form.vcu_id),
       assignedTo: v.is_assigned ? v.assigned_vehicle_unique_id : null,
     }));
   };
 
   const getHmiOptions = () => {
-    let available = hmis;
+    let available;
 
     if (!editing) {
       available = hmis.filter((h) => !h.is_assigned);
     } else {
-      const current = hmis.find((h) => h.hmi_id === parseInt(form.hmi_id));
       const free = hmis.filter((h) => !h.is_assigned);
-      available = [...free, current].filter(Boolean);
+      const current = hmis.find((h) => h.hmi_id === Number(form.hmi_id));
+
+      const map = new Map();
+      [...free, current].filter(Boolean).forEach((h) => map.set(h.hmi_id, h));
+
+      available = Array.from(map.values());
     }
 
     return available.map((h) => ({
       value: h.hmi_id,
-      label: h.imei_number || `ID: ${h.hmi_id}`,
       imei: h.imei_number,
-      makeModel: `${h.hmi_make || ""} ${h.hmi_model || ""}`.trim(),
-      isCurrent: editing && h.hmi_id === parseInt(form.hmi_id),
+      isCurrent: editing && h.hmi_id === Number(form.hmi_id),
       assignedTo: h.is_assigned ? h.assigned_vehicle_unique_id : null,
     }));
   };
 
-  // Auto-fill make+model (create only)
-  useEffect(() => {
-    if (!editing && form.vcu_id) {
-      const vcu = vcus.find((v) => v.vcu_id === parseInt(form.vcu_id));
-      if (vcu) {
-        setForm((prev) => ({
-          ...prev,
-          vcu_make_model: `${vcu.vcu_make || ""} ${vcu.vcu_model || ""}`.trim() || "",
-        }));
-      }
-    }
-  }, [form.vcu_id, vcus, editing]);
+  const unassignVcu = () => {
+    if (!confirm("Unassign VCU from this vehicle?")) return;
+    setVcuUnassigned(true);
+    setForm((prev) => ({ ...prev, vcu_id: "" }));
+  };
 
-  useEffect(() => {
-    if (!editing && form.hmi_id) {
-      const hmi = hmis.find((h) => h.hmi_id === parseInt(form.hmi_id));
-      if (hmi) {
-        setForm((prev) => ({
-          ...prev,
-          hmi_make_model: `${hmi.hmi_make || ""} ${hmi.hmi_model || ""}`.trim() || "",
-        }));
-      }
-    }
-  }, [form.hmi_id, hmis, editing]);
+  const unassignHmi = () => {
+    if (!confirm("Unassign HMI from this vehicle?")) return;
+    setHmiUnassigned(true);
+    setForm((prev) => ({ ...prev, hmi_id: "" }));
+  };
 
-  // Save form logic remains unchanged
   const saveForm = async () => {
     if (!form.vehicle_reg_no || !form.customer_id || !form.vtype_id) {
       alert("Registration No., Customer, and Vehicle Type are required!");
@@ -277,8 +389,18 @@ export default function VehicleMaster() {
       vehicle_unique_id: form.vehicle_unique_id,
       customer_id: parseInt(form.customer_id),
       vtype_id: parseInt(form.vtype_id),
-      vcu_id: form.vcu_id ? parseInt(form.vcu_id) : null,
-      hmi_id: form.hmi_id ? parseInt(form.hmi_id) : null,
+      vcu_id:
+        form.vcu_id !== ""
+          ? Number(form.vcu_id)
+          : editing
+          ? editing.vcu_id
+          : null,
+      hmi_id:
+        form.hmi_id !== ""
+          ? Number(form.hmi_id)
+          : editing
+          ? editing.hmi_id
+          : null,
       vehicle_reg_no: form.vehicle_reg_no || null,
       vcu_make_model: form.vcu_make_model || null,
       hmi_make_model: form.hmi_make_model || null,
@@ -328,12 +450,20 @@ export default function VehicleMaster() {
 
   const exportCSV = () => {
     const headers = [
-      "Unique ID", "Reg No.", "Customer", "Vehicle Type",
-      "VCU Serial", "HMI IMEI", "VCU Make+Model", "HMI Make+Model",
-      "Motor Unique ID", "Motor", "Controller Unique ID", "Controller",
-      "Battery Unique ID", "Battery", "DC/DC", "BTMS",
-      "Hydraulic Cooling", "Compressor", "Motor Cooling",
-      "Details", "Deployment",
+      "Unique ID",
+      "Reg No.",
+      "Customer",
+      "Vehicle Type",
+      "VCU Serial",
+      "HMI IMEI",
+      "VCU Make+Model",
+      "HMI Make+Model",
+      "Motor",
+      "Battery",
+      "DC/DC",
+      "BTMS",
+      "Deployment",
+      "Actions",
     ];
 
     const csv = [
@@ -348,11 +478,7 @@ export default function VehicleMaster() {
           r.hmi_imei || "",
           r.vcu_make_model || "",
           r.hmi_make_model || "",
-          r.motor_unique_id || "",
           r.motor_make_model || "",
-          r.controller_unique_id || "",
-          r.controller_make_model || "",
-          r.battery_unique_id || "",
           r.battery_make_model || "",
           r.dc_dc_make_model || "",
           r.btms_make_model || "",
@@ -429,11 +555,25 @@ export default function VehicleMaster() {
             <thead className="bg-black/50">
               <tr>
                 {[
-                  "Unique ID", "Reg No.", "Customer", "Vehicle Type",
-                  "VCU Serial", "HMI IMEI", "VCU Make+Model", "HMI Make+Model",
-                  "Motor", "Battery", "DC/DC", "BTMS", "Deployment", "Actions"
+                  "Unique ID",
+                  "Reg No.",
+                  "Customer",
+                  "Vehicle Type",
+                  "VCU Serial",
+                  "HMI IMEI",
+                  "VCU Make+Model",
+                  "HMI Make+Model",
+                  "Motor",
+                  "Battery",
+                  "DC/DC",
+                  "BTMS",
+                  "Deployment",
+                  "Actions",
                 ].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-orange-200 font-semibold">
+                  <th
+                    key={h}
+                    className="px-4 py-3 text-left text-orange-200 font-semibold"
+                  >
                     {h}
                   </th>
                 ))}
@@ -489,7 +629,7 @@ export default function VehicleMaster() {
           </table>
         </div>
 
-        {/* ==================== MODAL ==================== */}
+        {/* MODAL */}
         {showModal && (
           <div className="fixed inset-0 bg-black/80 z-50 overflow-y-auto">
             <div className="min-h-full w-full flex justify-center items-start pt-24 pb-10 px-4">
@@ -529,7 +669,7 @@ export default function VehicleMaster() {
                     placeholder="Select vehicle type"
                   />
 
-                  {/* === VCU Custom Dropdown with Chevron === */}
+                  {/* VCU Custom Dropdown */}
                   <div className="relative">
                     <label className="block">
                       <span className="text-orange-300 text-xs">VCU Serial</span>
@@ -544,16 +684,12 @@ export default function VehicleMaster() {
                         onFocus={() => setShowVcuList(true)}
                         onBlur={() => setTimeout(() => setShowVcuList(false), 200)}
                       />
-                      <ChevronDown
-                        className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-orange-400 pointer-events-none"
-                      />
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-orange-400 pointer-events-none" />
+
                       {form.vcu_id && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setForm({ ...form, vcu_id: "" });
-                            setVcuSearch("");
-                          }}
+                          onClick={unassignVcu}
                           className="absolute right-10 top-1/2 -translate-y-1/2 text-gray-400 hover:text-orange-400 text-xl leading-none"
                         >
                           ×
@@ -561,26 +697,47 @@ export default function VehicleMaster() {
                       )}
                     </div>
 
+                    {selectedVcu && (
+                      <p className="text-xs text-orange-400 mt-1">
+                        Selected: {selectedVcu.serial_number}
+                        {selectedVcu.is_assigned &&
+                          selectedVcu.assigned_vehicle_unique_id !== form.vehicle_unique_id &&
+                          ` (assigned to ${selectedVcu.assigned_vehicle_unique_id})`}
+                      </p>
+                    )}
+
                     {showVcuList && (
                       <div className="absolute z-10 w-full mt-1 bg-gray-800 border border-orange-500/30 rounded-lg max-h-60 overflow-auto shadow-2xl">
                         {getVcuOptions()
-                          .filter((opt) => (opt.serial || "").toLowerCase().includes(vcuSearch.toLowerCase()))
+                          .filter((opt) =>
+                            (opt.serial || "").toLowerCase().includes(vcuSearch.toLowerCase())
+                          )
                           .map((opt) => (
                             <div
                               key={opt.value}
                               className="px-3 py-2 hover:bg-orange-500/20 cursor-pointer text-sm flex justify-between items-center"
                               onMouseDown={() => {
-                                setForm({ ...form, vcu_id: opt.value });
+                                setForm({ ...form, vcu_id: String(opt.value) });
+                                setSelectedVcu({
+                                  vcu_id: opt.value,
+                                  serial_number: opt.serial,
+                                  is_assigned: !!opt.assignedTo,
+                                  assigned_vehicle_unique_id: opt.assignedTo,
+                                });
                                 setVcuSearch(opt.serial || "");
                                 setShowVcuList(false);
                               }}
                             >
                               <span>
                                 {opt.serial}
-                                {opt.isCurrent && " (Current)"}
+                                {opt.isCurrent && (
+                                  <span className="text-xs text-green-400 ml-2">current</span>
+                                )}
                               </span>
                               {opt.assignedTo && !opt.isCurrent && (
-                                <span className="text-xs text-orange-400">→ {opt.assignedTo}</span>
+                                <span className="text-xs text-orange-400">
+                                  → {opt.assignedTo}
+                                </span>
                               )}
                             </div>
                           ))}
@@ -598,10 +755,10 @@ export default function VehicleMaster() {
                   <Input
                     label="VCU Make+Model (Snapshot)"
                     value={form.vcu_make_model}
-                    disabled={!!editing}
+                    disabled
                   />
 
-                  {/* === HMI Custom Dropdown with Chevron === */}
+                  {/* HMI Custom Dropdown */}
                   <div className="relative">
                     <label className="block">
                       <span className="text-orange-300 text-xs">HMI IMEI</span>
@@ -616,16 +773,12 @@ export default function VehicleMaster() {
                         onFocus={() => setShowHmiList(true)}
                         onBlur={() => setTimeout(() => setShowHmiList(false), 200)}
                       />
-                      <ChevronDown
-                        className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-orange-400 pointer-events-none"
-                      />
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-orange-400 pointer-events-none" />
+
                       {form.hmi_id && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setForm({ ...form, hmi_id: "" });
-                            setHmiSearch("");
-                          }}
+                          onClick={unassignHmi}
                           className="absolute right-10 top-1/2 -translate-y-1/2 text-gray-400 hover:text-orange-400 text-xl leading-none"
                         >
                           ×
@@ -633,26 +786,47 @@ export default function VehicleMaster() {
                       )}
                     </div>
 
+                    {selectedHmi && (
+                      <p className="text-xs text-orange-400 mt-1">
+                        Selected: {selectedHmi.imei_number}
+                        {selectedHmi.is_assigned &&
+                          selectedHmi.assigned_vehicle_unique_id !== form.vehicle_unique_id &&
+                          ` (assigned to ${selectedHmi.assigned_vehicle_unique_id})`}
+                      </p>
+                    )}
+
                     {showHmiList && (
                       <div className="absolute z-10 w-full mt-1 bg-gray-800 border border-orange-500/30 rounded-lg max-h-60 overflow-auto shadow-2xl">
                         {getHmiOptions()
-                          .filter((opt) => (opt.imei || "").toLowerCase().includes(hmiSearch.toLowerCase()))
+                          .filter((opt) =>
+                            (opt.imei || "").toLowerCase().includes(hmiSearch.toLowerCase())
+                          )
                           .map((opt) => (
                             <div
                               key={opt.value}
                               className="px-3 py-2 hover:bg-orange-500/20 cursor-pointer text-sm flex justify-between items-center"
                               onMouseDown={() => {
-                                setForm({ ...form, hmi_id: opt.value });
+                                setForm({ ...form, hmi_id: String(opt.value) });
+                                setSelectedHmi({
+                                  hmi_id: opt.value,
+                                  imei_number: opt.imei,
+                                  is_assigned: !!opt.assignedTo,
+                                  assigned_vehicle_unique_id: opt.assignedTo,
+                                });
                                 setHmiSearch(opt.imei || "");
                                 setShowHmiList(false);
                               }}
                             >
                               <span>
                                 {opt.imei}
-                                {opt.isCurrent && " (Current)"}
+                                {opt.isCurrent && (
+                                  <span className="text-xs text-green-400 ml-2">current</span>
+                                )}
                               </span>
                               {opt.assignedTo && !opt.isCurrent && (
-                                <span className="text-xs text-orange-400">→ {opt.assignedTo}</span>
+                                <span className="text-xs text-orange-400">
+                                  → {opt.assignedTo}
+                                </span>
                               )}
                             </div>
                           ))}
@@ -670,7 +844,7 @@ export default function VehicleMaster() {
                   <Input
                     label="HMI Make+Model (Snapshot)"
                     value={form.hmi_make_model}
-                    disabled={!!editing}
+                    disabled
                   />
 
                   <Input
@@ -774,7 +948,7 @@ export default function VehicleMaster() {
 }
 
 // ────────────────────────────────────────────────
-// Reusable Components (unchanged)
+// Reusable Components
 // ────────────────────────────────────────────────
 
 function Input({ label, value = "", onChange, disabled = false, ...props }) {
