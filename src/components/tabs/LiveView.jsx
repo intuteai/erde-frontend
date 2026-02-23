@@ -166,6 +166,14 @@ export default function LiveView() {
     </div>
   );
 
+  const Divider = ({ label }) => (
+    <div className="flex items-center gap-2 pt-1 pb-0.5">
+      <div className="flex-1 h-px bg-orange-500/20" />
+      {label && <span className="text-[11px] text-orange-500/60 uppercase tracking-widest">{label}</span>}
+      <div className="flex-1 h-px bg-orange-500/20" />
+    </div>
+  );
+
   // ────────────────────────────────────────────────
   const tempPackStats = live.temp_pack_stats ?? {};
   const voltagePackStats = live.cell_pack_stats ?? {};
@@ -212,6 +220,8 @@ export default function LiveView() {
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+        {/* ── Battery / BMS / Charger ── */}
         <Section title="Battery / BMS / Charger">
           <Item name="State of Charge" value={<Val v={live.soc_percent} unit="%" fixed={1} />} />
           <Item name="Battery Status" value={live.battery_status ?? "–"} />
@@ -241,12 +251,25 @@ export default function LiveView() {
               </button>
             }
           />
+
+          {/* BMS-reported pack voltage stats */}
+          <Divider label="Pack Voltage (BMS)" />
+          <Item name="Max Cell Voltage" value={<Val v={live.max_voltage_v} unit="V" fixed={3} />} />
+          <Item name="Min Cell Voltage" value={<Val v={live.min_voltage_v} unit="V" fixed={3} />} />
+          <Item name="Avg Cell Voltage" value={<Val v={live.avg_voltage_v} unit="V" fixed={3} />} />
+
+          {/* BMS-reported pack temperature stats */}
+          <Divider label="Pack Temperature (BMS)" />
+          <Item name="Max Temperature" value={<Val v={live.max_temp_c} unit="°C" fixed={1} />} />
+          <Item name="Min Temperature" value={<Val v={live.min_temp_c} unit="°C" fixed={1} />} />
+          <Item name="Avg Temperature" value={<Val v={live.avg_temp_c} unit="°C" fixed={1} />} />
         </Section>
 
+        {/* ── Motor & MCU ── */}
         <Section title="Motor & MCU">
           <Item name="Torque" value={<Val v={live.motor_torque_nm} unit="Nm" />} />
           <Item name="Operation Mode" value={live.motor_operation_mode ?? "–"} />
-          <Item name="Speed" value={<Val v={live.motor_speed_rpm} fixed={0} unit="RPM" />} />
+          <Item name="Speed" value={<Val v={live.motor_speed_rpm} fixed={0} unit=" RPM" />} />
           <Item name="AC Current" value={<Val v={live.ac_current_a} unit="A" />} />
           <Item name="Torque Limit" value={<Val v={live.motor_torque_limit} unit="Nm" />} />
           <Item name="Rotation Direction" value={live.motor_rotation_dir ?? "–"} />
@@ -254,23 +277,13 @@ export default function LiveView() {
           <Item name="AC Voltage" value={<Val v={live.motor_ac_voltage_v} unit="V" />} />
           <Item name="MCU Enable State" value={live.mcu_enable_state ?? "–"} />
           <Item name="MCU Temperature" value={<Val v={live.mcu_temp_c} unit="°C" />} />
-          <Item
-            name="Status Word"
-            value={
-              live.motor_status_word != null
-                ? `0x${Number(live.motor_status_word).toString(16).toUpperCase()}`
-                : "–"
-            }
-          />
+          <Item name="DC Side Voltage" value={<Val v={live.dc_side_voltage_v} unit="V" />} />
+          <Item name="Status Word" value={live.motor_status_word ?? "–"} />
           <Item name="Frequency Raw" value={live.motor_freq_raw ?? "–"} />
-          <Item
-            name="Total Wattage"
-            value={<Val v={live.motor_total_wattage_w} unit="W" fixed={0} />}
-          />
-          <Item name="DC Input Voltage Raw" value={live.motor_dc_input_voltage_raw ?? "–"} />
-          <Item name="AC Output Voltage Raw" value={live.motor_ac_output_voltage_raw ?? "–"} />
+          <Item name="Total Wattage" value={<Val v={live.motor_total_wattage_w} unit="W" fixed={0} />} />
         </Section>
 
+        {/* ── Peripherals ── */}
         <Section title="Peripherals Live Data">
           <Item
             name="Radiator Temperature"
@@ -280,6 +293,7 @@ export default function LiveView() {
           <Item name="Hydraulic Pump RPM" value="–" />
         </Section>
 
+        {/* ── ODO / Trip ── */}
         <Section title="ODO / Trip Details">
           <Item name="Total Running Hours" value={<HoursToHrMin hours={live.total_hours} />} />
           <Item name="Last Trip Hours" value={<HoursToHrMin hours={live.last_trip_hrs} />} />
@@ -293,6 +307,7 @@ export default function LiveView() {
           />
         </Section>
 
+        {/* ── DC-DC Converter ── */}
         <Section title="DC-DC Converter">
           <Item name="Input Voltage" value={<Val v={live.dcdc_input_voltage_v} unit="V" />} />
           <Item name="Input Current" value={<Val v={live.dcdc_input_current_a} unit="A" />} />
@@ -306,25 +321,15 @@ export default function LiveView() {
           />
           <Item name="Output Voltage" value={<Val v={live.dcdc_output_voltage_v} unit="V" />} />
           <Item name="Output Current" value={<Val v={live.dcdc_output_current_a} unit="A" />} />
-          <Item
-            name="Pri A MOSFET Temp"
-            value={<Val v={live.dcdc_pri_a_mosfet_temp_c} unit="°C" />}
-          />
-          <Item
-            name="Pri C MOSFET Temp"
-            value={<Val v={live.dcdc_pri_c_mosfet_temp_c} unit="°C" />}
-          />
-          <Item
-            name="Sec LS MOSFET Temp"
-            value={<Val v={live.dcdc_sec_ls_mosfet_temp_c} unit="°C" />}
-          />
-          <Item
-            name="Sec HS MOSFET Temp"
-            value={<Val v={live.dcdc_sec_hs_mosfet_temp_c} unit="°C" />}
-          />
+          <Item name="Max Temperature" value={<Val v={live.dcdc_max_temp_c} unit="°C" />} />
+          <Item name="Pri A MOSFET Temp" value={<Val v={live.dcdc_pri_a_mosfet_temp_c} unit="°C" />} />
+          <Item name="Pri C MOSFET Temp" value={<Val v={live.dcdc_pri_c_mosfet_temp_c} unit="°C" />} />
+          <Item name="Sec LS MOSFET Temp" value={<Val v={live.dcdc_sec_ls_mosfet_temp_c} unit="°C" />} />
+          <Item name="Sec HS MOSFET Temp" value={<Val v={live.dcdc_sec_hs_mosfet_temp_c} unit="°C" />} />
           <Item name="Overcurrent Fault Count" value={live.dcdc_occurrence_count ?? "–"} />
         </Section>
 
+        {/* ── BTMS ── */}
         <Section title="BTMS (Thermal Management)">
           <Item name="Command Mode" value={live.btms_command_mode ?? "–"} />
           <Item
@@ -373,6 +378,43 @@ export default function LiveView() {
           <Item name="BMS Life Counter" value={live.bms_life_counter ?? "–"} />
         </Section>
 
+        {/* ── Air Compressor ── */}
+        <Section title="Air Compressor">
+          <Item
+            name="Input Voltage"
+            value={<Val v={live.compressor_input_voltage_v} unit="V" />}
+          />
+          <Item
+            name="Input Current"
+            value={<Val v={live.compressor_input_current_a} unit="A" />}
+          />
+          <Item
+            name="Input Power"
+            value={
+              live.compressor_input_voltage_v != null && live.compressor_input_current_a != null
+                ? <Val v={(live.compressor_input_voltage_v * live.compressor_input_current_a) / 1000} unit="kW" />
+                : "–"
+            }
+          />
+          <Item
+            name="Output Voltage"
+            value={<Val v={live.compressor_output_voltage_v} unit="V" />}
+          />
+          <Item
+            name="Output Current"
+            value={<Val v={live.compressor_output_current_a} unit="A" />}
+          />
+          <Item
+            name="Output Power"
+            value={
+              live.compressor_output_voltage_v != null && live.compressor_output_current_a != null
+                ? <Val v={(live.compressor_output_voltage_v * live.compressor_output_current_a) / 1000} unit="kW" />
+                : "–"
+            }
+          />
+        </Section>
+
+        {/* ── Alarms ── */}
         <div className="md:col-span-2">
           <Section title="Alarms & Warnings">
             {Object.entries(live)
@@ -482,7 +524,6 @@ export default function LiveView() {
             <div className="overflow-y-auto max-h-[58vh] p-4">
               {(live.temp_modules ?? []).map((moduleValues, i) => {
                 const moduleStats = live.temp_module_stats?.[i] ?? {};
-
                 const moduleBorder =
                   moduleStats.status === "CRITICAL" ? "border-red-500" :
                   moduleStats.status === "WARN"     ? "border-yellow-500/70" :
@@ -515,7 +556,6 @@ export default function LiveView() {
                         )}
                       </div>
                     </div>
-
                     <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-1.5">
                       {moduleValues.map((t, j) => (
                         <div
@@ -539,7 +579,6 @@ export default function LiveView() {
                   </div>
                 );
               })}
-
               {(live.temp_modules ?? []).length === 0 && (
                 <div className="text-center text-gray-500 py-12">
                   No temperature module data available
@@ -622,7 +661,6 @@ export default function LiveView() {
             <div className="overflow-y-auto max-h-[58vh] p-4">
               {(live.cell_modules ?? []).map((moduleValues, i) => {
                 const moduleStats = live.cell_module_stats?.[i] ?? {};
-
                 return (
                   <div
                     key={i}
@@ -639,7 +677,6 @@ export default function LiveView() {
                         </span>
                       </div>
                     </div>
-
                     <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-1.5">
                       {moduleValues.map((v, j) => (
                         <div
@@ -666,7 +703,6 @@ export default function LiveView() {
                   </div>
                 );
               })}
-
               {(live.cell_modules ?? []).length === 0 && (
                 <div className="text-center text-gray-500 py-12">
                   No cell voltage module data available
