@@ -27,6 +27,7 @@ export default function DatabaseLogs() {
   const [exportProgress, setExportProgress] = useState(0);
   const [exportTotal, setExportTotal] = useState(0);
   const [exportCurrent, setExportCurrent] = useState(0);
+  const [exportEta, setExportEta] = useState(null); // "2 min 30 sec" string
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState(null);
   const loadMoreRef = useRef(null);
@@ -66,12 +67,10 @@ export default function DatabaseLogs() {
     { key: "mcu_temp_c", label: "MCU Temperature (°C)" },
     { key: "radiator_temp_c", label: "Radiator Temperature (°C)" },
 
-    // New: Motor Raw Data
+    // Motor Raw Data
     { key: "motor_status_word", label: "Motor Status Word" },
     { key: "motor_freq_raw", label: "Motor Frequency Raw" },
     { key: "motor_total_wattage_w", label: "Motor Total Wattage (W)" },
-    { key: "motor_dc_input_voltage_raw", label: "Motor DC Input Voltage Raw" },
-    { key: "motor_ac_output_voltage_raw", label: "Motor AC Output Voltage Raw" },
 
     // BTMS (Thermal Management)
     { key: "btms_command_mode", label: "BTMS Command Mode" },
@@ -93,11 +92,18 @@ export default function DatabaseLogs() {
     { key: "dcdc_sec_ls_mosfet_temp_c", label: "DCDC Sec LS MOSFET Temp (°C)" },
     { key: "dcdc_sec_hs_mosfet_temp_c", label: "DCDC Sec HS MOSFET Temp (°C)" },
     { key: "dcdc_pri_c_mosfet_temp_c", label: "DCDC Pri C MOSFET Temp (°C)" },
+    { key: "dcdc_max_temp_c", label: "DCDC Max Temp (°C)" },
     { key: "dcdc_input_voltage_v", label: "DCDC Input Voltage (V)" },
     { key: "dcdc_input_current_a", label: "DCDC Input Current (A)" },
     { key: "dcdc_output_voltage_v", label: "DCDC Output Voltage (V)" },
     { key: "dcdc_output_current_a", label: "DCDC Output Current (A)" },
     { key: "dcdc_occurence_count", label: "DCDC Overcurrent Count" },
+
+    // Air Compressor
+    { key: "compressor_input_voltage_v", label: "Compressor Input Voltage (V)" },
+    { key: "compressor_input_current_a", label: "Compressor Input Current (A)" },
+    { key: "compressor_output_voltage_v", label: "Compressor Output Voltage (V)" },
+    { key: "compressor_output_current_a", label: "Compressor Output Current (A)" },
 
     // Odometer & Energy
     { key: "total_running_hrs", label: "Total Running Hours" },
@@ -166,12 +172,23 @@ export default function DatabaseLogs() {
     }
   };
 
-  /* ========================= OPTIMIZED EXPORT WITH STREAMING & PROGRESS ========================= */
+  /* ========================= HELPERS ========================= */
+  const fmtEta = (seconds) => {
+    if (!seconds || seconds <= 0 || !isFinite(seconds)) return null;
+    const m = Math.floor(seconds / 60);
+    const s = Math.round(seconds % 60);
+    if (m === 0) return `~${s} sec remaining`;
+    if (s === 0) return `~${m} min remaining`;
+    return `~${m} min ${s} sec remaining`;
+  };
+
+  /* ========================= EXPORT WITH STREAMING, PROGRESS & ETA ========================= */
   const exportData = async () => {
     setExporting(true);
     setExportProgress(0);
     setExportTotal(0);
     setExportCurrent(0);
+    setExportEta(null);
     setError(null);
 
     let abortController = new AbortController();
@@ -205,11 +222,11 @@ export default function DatabaseLogs() {
       const columnKeys = visibleCols.map(c => c.key);
       exportParams.append('columns', JSON.stringify(columnKeys));
 
-      // Step 1: Get total count for progress tracking
+      // Step 1: Get total count
       const countUrl = `/api/database-logs/${vehicleId}/count?${exportParams.toString()}`;
-      const countRes = await fetch(countUrl, { 
+      const countRes = await fetch(countUrl, {
         headers: authHeaders,
-        signal: abortController.signal 
+        signal: abortController.signal
       });
 
       if (!countRes.ok) {
@@ -225,12 +242,12 @@ export default function DatabaseLogs() {
         return;
       }
 
-      // Step 2: Start the export with streaming
+      // Step 2: Start streaming export
       const exportUrl = `/api/database-logs/${vehicleId}/export?${exportParams.toString()}`;
-      
-      const exportRes = await fetch(exportUrl, { 
+
+      const exportRes = await fetch(exportUrl, {
         headers: authHeaders,
-        signal: abortController.signal 
+        signal: abortController.signal
       });
 
       if (!exportRes.ok) {
@@ -238,45 +255,67 @@ export default function DatabaseLogs() {
         throw new Error(`Export failed: ${exportRes.status} ${text || exportRes.statusText}`);
       }
 
-      // Get total from headers if available
       const totalFromHeader = exportRes.headers.get('X-Total-Rows');
-      if (totalFromHeader) {
-        setExportTotal(parseInt(totalFromHeader, 10));
-      }
+      const knownTotal = totalFromHeader ? parseInt(totalFromHeader, 10) : total;
+      if (totalFromHeader) setExportTotal(knownTotal);
 
-      // Read the stream and track progress
+      // Read stream with rolling rows/sec tracker for ETA
       const reader = exportRes.body.getReader();
       const chunks = [];
-      let receivedLength = 0;
+      let receivedBytes = 0;
       let estimatedRows = 0;
-      const avgBytesPerRow = 150; // Rough estimate
+      const avgBytesPerRow = 150;
+
+      // Rolling window: track (timestamp, rowCount) pairs over last 5 seconds
+      const rateWindow = []; // [{ time: ms, rows: n }, ...]
+      const RATE_WINDOW_MS = 5000;
+      const startTime = Date.now();
 
       while (true) {
         const { done, value } = await reader.read();
-        
+
         if (done) break;
 
         chunks.push(value);
-        receivedLength += value.length;
-        
-        // Estimate rows processed (rough calculation)
-        estimatedRows = Math.floor(receivedLength / avgBytesPerRow);
-        setExportCurrent(Math.min(estimatedRows, total));
-        
-        // Calculate progress percentage
-        const progress = total > 0 ? Math.min((estimatedRows / total) * 100, 99) : 0;
+        receivedBytes += value.length;
+
+        const now = Date.now();
+        estimatedRows = Math.floor(receivedBytes / avgBytesPerRow);
+        const currentRows = Math.min(estimatedRows, knownTotal);
+
+        // Push current measurement into rolling window
+        rateWindow.push({ time: now, rows: currentRows });
+
+        // Trim entries older than RATE_WINDOW_MS
+        while (rateWindow.length > 1 && now - rateWindow[0].time > RATE_WINDOW_MS) {
+          rateWindow.shift();
+        }
+
+        // Calculate rows/sec from rolling window
+        let eta = null;
+        if (rateWindow.length >= 2) {
+          const windowDuration = (rateWindow[rateWindow.length - 1].time - rateWindow[0].time) / 1000;
+          const windowRows = rateWindow[rateWindow.length - 1].rows - rateWindow[0].rows;
+          const rowsPerSec = windowDuration > 0 ? windowRows / windowDuration : 0;
+
+          if (rowsPerSec > 0) {
+            const remaining = knownTotal - currentRows;
+            eta = fmtEta(remaining / rowsPerSec);
+          }
+        }
+
+        setExportCurrent(currentRows);
+        setExportEta(eta);
+        const progress = knownTotal > 0 ? Math.min((currentRows / knownTotal) * 100, 99) : 0;
         setExportProgress(progress);
       }
 
-      // Combine all chunks into a blob
+      // Combine all chunks into a blob and trigger download
       const blob = new Blob(chunks, { type: 'text/csv' });
-
-      // Create download link
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
 
-      // Generate filename
       let filename = `raw_telemetry_${vehicleId}`;
       switch (exportMode) {
         case "today": filename += `_today_${todayStr}`; break;
@@ -290,15 +329,15 @@ export default function DatabaseLogs() {
       document.body.removeChild(a);
       URL.revokeObjectURL(blobUrl);
 
-      // Mark as complete
       setExportProgress(100);
-      setExportCurrent(total);
-      
-      // Reset progress after 3 seconds
+      setExportCurrent(knownTotal);
+      setExportEta(null);
+
       setTimeout(() => {
         setExportProgress(0);
         setExportTotal(0);
         setExportCurrent(0);
+        setExportEta(null);
       }, 3000);
 
     } catch (err) {
@@ -438,7 +477,12 @@ export default function DatabaseLogs() {
                 <span>
                   {exportCurrent.toLocaleString()} / {exportTotal.toLocaleString()} rows
                 </span>
-                <span>{exportProgress.toFixed(1)}%</span>
+                <span className="flex items-center gap-3">
+                  {exportEta && (
+                    <span className="text-orange-400/80 text-xs">{exportEta}</span>
+                  )}
+                  <span>{exportProgress.toFixed(1)}%</span>
+                </span>
               </div>
               <div className="w-full bg-gray-700 rounded-full h-4 overflow-hidden shadow-inner">
                 <div
@@ -459,7 +503,7 @@ export default function DatabaseLogs() {
           )}
         </div>
 
-        {/* Export Info Banner - only show if not already showing progress */}
+        {/* Calculating banner */}
         {exporting && exportTotal === 0 && (
           <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
             <p className="text-blue-300 text-sm">
