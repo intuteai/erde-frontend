@@ -1,9 +1,103 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 
+/* ============================================================
+   COLUMN DEFINITIONS  (single source of truth — mirrors backend)
+   ============================================================ */
+const COLUMNS = [
+  { key: "recorded_at",                 label: "Timestamp",                       alwaysVisible: true },
+  { key: "soc_percent",                 label: "SOC (%)" },
+  { key: "battery_status",              label: "Battery Status" },
+  { key: "stack_voltage_v",             label: "Stack Voltage (V)" },
+  { key: "battery_current_a",           label: "Battery Current (A)" },
+  { key: "output_power_kw",             label: "Output Power (kW)" },
+  { key: "charger_current_demand_a",    label: "Charger Current Demand (A)" },
+  { key: "charger_voltage_demand_v",    label: "Charger Voltage Demand (V)" },
+  { key: "max_voltage_v",               label: "Max Cell Voltage (V)" },
+  { key: "min_voltage_v",               label: "Min Cell Voltage (V)" },
+  { key: "avg_voltage_v",               label: "Avg Cell Voltage (V)" },
+  { key: "max_temp_c",                  label: "Max Battery Temp (°C)" },
+  { key: "min_temp_c",                  label: "Min Battery Temp (°C)" },
+  { key: "avg_temp_c",                  label: "Avg Battery Temp (°C)" },
+  { key: "motor_torque_limit",          label: "Motor Torque Limit (Nm)" },
+  { key: "motor_torque_value",          label: "Motor Torque Value (Nm)" },
+  { key: "motor_speed_rpm",             label: "Motor Speed (RPM)" },
+  { key: "motor_rotation_dir",          label: "Motor Rotation Direction" },
+  { key: "motor_operation_mode",        label: "Motor Operation Mode" },
+  { key: "mcu_enable_state",            label: "MCU Enable State" },
+  { key: "motor_ac_current_a",          label: "Motor AC Current (A)" },
+  { key: "motor_ac_voltage_v",          label: "Motor AC Voltage (V)" },
+  { key: "dc_side_voltage_v",           label: "DC Side Voltage (V)" },
+  { key: "motor_temp_c",                label: "Motor Temperature (°C)" },
+  { key: "mcu_temp_c",                  label: "MCU Temperature (°C)" },
+  { key: "radiator_temp_c",             label: "Radiator Temperature (°C)" },
+  { key: "motor_status_word",           label: "Motor Status Word" },
+  { key: "motor_freq_raw",              label: "Motor Frequency Raw" },
+  { key: "motor_total_wattage_w",       label: "Motor Total Wattage (W)" },
+  { key: "btms_command_mode",           label: "BTMS Command Mode" },
+  { key: "btms_status_mode",            label: "BTMS Status Mode" },
+  { key: "btms_hv_request",             label: "BTMS HV Request" },
+  { key: "btms_charge_status",          label: "BTMS Charge Status" },
+  { key: "bms_hv_relay_state",          label: "BMS HV Relay State" },
+  { key: "btms_hv_relay_state",         label: "BTMS HV Relay State" },
+  { key: "btms_target_temp_c",          label: "BTMS Target Temp (°C)" },
+  { key: "btms_inlet_temp_c",           label: "BTMS Inlet Temp (°C)" },
+  { key: "btms_outlet_temp_c",          label: "BTMS Outlet Temp (°C)" },
+  { key: "btms_demand_power_kw",        label: "BTMS Demand Power (kW)" },
+  { key: "bms_pack_voltage_v",          label: "BMS Pack Voltage (V)" },
+  { key: "bms_life_counter",            label: "BMS Life Counter" },
+  { key: "btms_command_crc",            label: "BTMS Command CRC" },
+  { key: "dcdc_pri_a_mosfet_temp_c",   label: "DCDC Pri A MOSFET Temp (°C)" },
+  { key: "dcdc_sec_ls_mosfet_temp_c",  label: "DCDC Sec LS MOSFET Temp (°C)" },
+  { key: "dcdc_sec_hs_mosfet_temp_c",  label: "DCDC Sec HS MOSFET Temp (°C)" },
+  { key: "dcdc_pri_c_mosfet_temp_c",   label: "DCDC Pri C MOSFET Temp (°C)" },
+  { key: "dcdc_max_temp_c",            label: "DCDC Max Temp (°C)" },
+  { key: "dcdc_input_voltage_v",       label: "DCDC Input Voltage (V)" },
+  { key: "dcdc_input_current_a",       label: "DCDC Input Current (A)" },
+  { key: "dcdc_output_voltage_v",      label: "DCDC Output Voltage (V)" },
+  { key: "dcdc_output_current_a",      label: "DCDC Output Current (A)" },
+  { key: "dcdc_occurence_count",       label: "DCDC Overcurrent Count" },
+  { key: "compressor_input_voltage_v", label: "Compressor Input Voltage (V)" },
+  { key: "compressor_input_current_a", label: "Compressor Input Current (A)" },
+  { key: "compressor_output_voltage_v",label: "Compressor Output Voltage (V)" },
+  { key: "compressor_output_current_a",label: "Compressor Output Current (A)" },
+  { key: "total_running_hrs",          label: "Total Running Hours" },
+  { key: "last_trip_hrs",              label: "Last Trip Hours" },
+  { key: "total_kwh_consumed",         label: "Total kWh Consumed" },
+  { key: "last_trip_kwh",              label: "Last Trip kWh" },
+];
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+const fmtDate = (date) => {
+  if (!(date instanceof Date) || isNaN(date)) return "";
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+};
+
+const fmtEta = (seconds) => {
+  if (!seconds || seconds <= 0 || !isFinite(seconds)) return null;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  if (m === 0) return `~${s}s remaining`;
+  if (s === 0) return `~${m}m remaining`;
+  return `~${m}m ${s}s remaining`;
+};
+
+const authHeaders = () => {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+/* ============================================================
+   COMPONENT
+   ============================================================ */
 export default function DatabaseLogs() {
-  const { id } = useParams();
-  const vehicleId = id;
+  const { id: vehicleId } = useParams();
 
   if (!vehicleId) {
     return (
@@ -13,156 +107,74 @@ export default function DatabaseLogs() {
     );
   }
 
-  const today = new Date();
-  const todayStr = fmtDate(today);
+  const todayStr = fmtDate(new Date());
 
+  // ---- display state ----
   const [selectedDate, setSelectedDate] = useState(todayStr);
-  const [exportMode, setExportMode] = useState("today");
-  const [customStart, setCustomStart] = useState(todayStr);
-  const [customEnd, setCustomEnd] = useState(todayStr);
-  const [rows, setRows] = useState([]);
-  const [cursor, setCursor] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState(0);
-  const [exportTotal, setExportTotal] = useState(0);
-  const [exportCurrent, setExportCurrent] = useState(0);
-  const [exportEta, setExportEta] = useState(null); // "2 min 30 sec" string
-  const [hasMore, setHasMore] = useState(true);
-  const [error, setError] = useState(null);
-  const loadMoreRef = useRef(null);
+  const [rows, setRows]                 = useState([]);
+  const [cursor, setCursor]             = useState(null);
+  const [loading, setLoading]           = useState(false);
+  const [hasMore, setHasMore]           = useState(true);
+  const [error, setError]               = useState(null);
+  const loadMoreRef                     = useRef(null);
 
-  /* ========================= ALL COLUMNS ========================= */
-  const COLUMNS = [
-    { key: "recorded_at", label: "Timestamp", alwaysVisible: true },
-
-    // Battery Basics
-    { key: "soc_percent", label: "SOC (%)" },
-    { key: "battery_status", label: "Battery Status" },
-    { key: "stack_voltage_v", label: "Stack Voltage (V)" },
-    { key: "battery_current_a", label: "Battery Current (A)" },
-    { key: "output_power_kw", label: "Output Power (kW)" },
-    { key: "charger_current_demand_a", label: "Charger Current Demand (A)" },
-    { key: "charger_voltage_demand_v", label: "Charger Voltage Demand (V)" },
-
-    // Cell & Temperature Stats
-    { key: "max_voltage_v", label: "Max Cell Voltage (V)" },
-    { key: "min_voltage_v", label: "Min Cell Voltage (V)" },
-    { key: "avg_voltage_v", label: "Avg Cell Voltage (V)" },
-    { key: "max_temp_c", label: "Max Battery Temp (°C)" },
-    { key: "min_temp_c", label: "Min Battery Temp (°C)" },
-    { key: "avg_temp_c", label: "Avg Battery Temp (°C)" },
-
-    // Motor & Inverter
-    { key: "motor_torque_limit", label: "Motor Torque Limit (Nm)" },
-    { key: "motor_torque_value", label: "Motor Torque Value (Nm)" },
-    { key: "motor_speed_rpm", label: "Motor Speed (RPM)" },
-    { key: "motor_rotation_dir", label: "Motor Rotation Direction" },
-    { key: "motor_operation_mode", label: "Motor Operation Mode" },
-    { key: "mcu_enable_state", label: "MCU Enable State" },
-    { key: "motor_ac_current_a", label: "Motor AC Current (A)" },
-    { key: "motor_ac_voltage_v", label: "Motor AC Voltage (V)" },
-    { key: "dc_side_voltage_v", label: "DC Side Voltage (V)" },
-    { key: "motor_temp_c", label: "Motor Temperature (°C)" },
-    { key: "mcu_temp_c", label: "MCU Temperature (°C)" },
-    { key: "radiator_temp_c", label: "Radiator Temperature (°C)" },
-
-    // Motor Raw Data
-    { key: "motor_status_word", label: "Motor Status Word" },
-    { key: "motor_freq_raw", label: "Motor Frequency Raw" },
-    { key: "motor_total_wattage_w", label: "Motor Total Wattage (W)" },
-
-    // BTMS (Thermal Management)
-    { key: "btms_command_mode", label: "BTMS Command Mode" },
-    { key: "btms_status_mode", label: "BTMS Status Mode" },
-    { key: "btms_hv_request", label: "BTMS HV Request" },
-    { key: "btms_charge_status", label: "BTMS Charge Status" },
-    { key: "bms_hv_relay_state", label: "BMS HV Relay State" },
-    { key: "btms_hv_relay_state", label: "BTMS HV Relay State" },
-    { key: "btms_target_temp_c", label: "BTMS Target Temp (°C)" },
-    { key: "btms_inlet_temp_c", label: "BTMS Inlet Temp (°C)" },
-    { key: "btms_outlet_temp_c", label: "BTMS Outlet Temp (°C)" },
-    { key: "btms_demand_power_kw", label: "BTMS Demand Power (kW)" },
-    { key: "bms_pack_voltage_v", label: "BMS Pack Voltage (V)" },
-    { key: "bms_life_counter", label: "BMS Life Counter" },
-    { key: "btms_command_crc", label: "BTMS Command CRC" },
-
-    // DC-DC Converter
-    { key: "dcdc_pri_a_mosfet_temp_c", label: "DCDC Pri A MOSFET Temp (°C)" },
-    { key: "dcdc_sec_ls_mosfet_temp_c", label: "DCDC Sec LS MOSFET Temp (°C)" },
-    { key: "dcdc_sec_hs_mosfet_temp_c", label: "DCDC Sec HS MOSFET Temp (°C)" },
-    { key: "dcdc_pri_c_mosfet_temp_c", label: "DCDC Pri C MOSFET Temp (°C)" },
-    { key: "dcdc_max_temp_c", label: "DCDC Max Temp (°C)" },
-    { key: "dcdc_input_voltage_v", label: "DCDC Input Voltage (V)" },
-    { key: "dcdc_input_current_a", label: "DCDC Input Current (A)" },
-    { key: "dcdc_output_voltage_v", label: "DCDC Output Voltage (V)" },
-    { key: "dcdc_output_current_a", label: "DCDC Output Current (A)" },
-    { key: "dcdc_occurence_count", label: "DCDC Overcurrent Count" },
-
-    // Air Compressor
-    { key: "compressor_input_voltage_v", label: "Compressor Input Voltage (V)" },
-    { key: "compressor_input_current_a", label: "Compressor Input Current (A)" },
-    { key: "compressor_output_voltage_v", label: "Compressor Output Voltage (V)" },
-    { key: "compressor_output_current_a", label: "Compressor Output Current (A)" },
-
-    // Odometer & Energy
-    { key: "total_running_hrs", label: "Total Running Hours" },
-    { key: "last_trip_hrs", label: "Last Trip Hours" },
-    { key: "total_kwh_consumed", label: "Total kWh Consumed" },
-    { key: "last_trip_kwh", label: "Last Trip kWh" },
-  ];
-
+  // ---- column visibility ----
   const [selectedCols, setSelectedCols] = useState(
-    new Set(COLUMNS.filter(c => !c.alwaysVisible).map(c => c.key))
+    () => new Set(COLUMNS.filter(c => !c.alwaysVisible).map(c => c.key))
   );
 
-  const toggleCol = (key) => {
-    setSelectedCols(prev => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-  };
+  // ---- export state ----
+  const [exportMode, setExportMode]         = useState("today");
+  const [customStart, setCustomStart]       = useState(todayStr);
+  const [customEnd, setCustomEnd]           = useState(todayStr);
+  const [exporting, setExporting]           = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);   // 0-100
+  const [exportTotal, setExportTotal]       = useState(0);
+  const [exportCurrent, setExportCurrent]   = useState(0);
+  const [exportEta, setExportEta]           = useState(null);
+  const [exportDone, setExportDone]         = useState(false);
+  const exportAbort                         = useRef(null);
 
-  const selectAllCols = () => {
-    setSelectedCols(new Set(COLUMNS.filter(c => !c.alwaysVisible).map(c => c.key)));
-  };
+  /* ========================= COLUMN HELPERS ========================= */
+  const toggleCol    = useCallback(key => setSelectedCols(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  }), []);
 
+  const selectAllCols  = () => setSelectedCols(new Set(COLUMNS.filter(c => !c.alwaysVisible).map(c => c.key)));
   const deselectAllCols = () => setSelectedCols(new Set());
 
-  /* ========================= FETCH LOGS ========================= */
-  const fetchLogs = async (reset = false) => {
-    if (loading || (!hasMore && !reset)) return;
+  const visibleColumns = COLUMNS.filter(c => c.alwaysVisible || selectedCols.has(c.key));
 
+  /* ========================= FETCH LOGS ========================= */
+  const fetchLogs = useCallback(async (reset = false) => {
+    if (loading || (!hasMore && !reset)) return;
     setLoading(true);
     setError(null);
 
     try {
-      const token = localStorage.getItem("token");
-      const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+      const params = new URLSearchParams({ date: selectedDate });
+      if (!reset && cursor) params.set("cursor", cursor);
 
-      const fetchUrl = `/api/database-logs/${vehicleId}?date=${selectedDate}${
-        !reset && cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
-      }`;
+      const res = await fetch(`/api/database-logs/${vehicleId}?${params}`, {
+        headers: authHeaders(),
+      });
 
-      const res = await fetch(fetchUrl, { headers: authHeaders });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const newRows = await res.json();
-
       if (!Array.isArray(newRows) || newRows.length === 0) {
         setHasMore(false);
         if (reset) setRows([]);
         return;
       }
 
-      const updatedRows = reset ? newRows : [...rows, ...newRows];
-      setRows(updatedRows);
-
+      setRows(prev => reset ? newRows : [...prev, ...newRows]);
       setCursor(newRows[newRows.length - 1].recorded_at_raw);
 
-      const hasMoreHeader = res.headers.get("X-Has-More");
-      setHasMore(hasMoreHeader === "true" || (!hasMoreHeader && newRows.length === 200));
+      const more = res.headers.get("X-Has-More");
+      setHasMore(more === "true" || (!more && newRows.length === 200));
     } catch (err) {
       console.error("Fetch error:", err);
       setError(err.message || "Failed to load data");
@@ -170,160 +182,129 @@ export default function DatabaseLogs() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [vehicleId, selectedDate, cursor, loading, hasMore]);
 
-  /* ========================= HELPERS ========================= */
-  const fmtEta = (seconds) => {
-    if (!seconds || seconds <= 0 || !isFinite(seconds)) return null;
-    const m = Math.floor(seconds / 60);
-    const s = Math.round(seconds % 60);
-    if (m === 0) return `~${s} sec remaining`;
-    if (s === 0) return `~${m} min remaining`;
-    return `~${m} min ${s} sec remaining`;
-  };
-
-  /* ========================= EXPORT WITH STREAMING, PROGRESS & ETA ========================= */
+  /* ========================= EXPORT ========================= */
   const exportData = async () => {
+    if (exporting) return;
+
+    // Reset export state
     setExporting(true);
     setExportProgress(0);
     setExportTotal(0);
     setExportCurrent(0);
     setExportEta(null);
+    setExportDone(false);
     setError(null);
 
-    let abortController = new AbortController();
+    const abort = new AbortController();
+    exportAbort.current = abort;
 
     try {
-      const token = localStorage.getItem("token");
-      const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+      // Build URL params
+      const exportParams = new URLSearchParams();
 
-      // Build export parameters
-      let exportParams = new URLSearchParams();
-
-      switch (exportMode) {
-        case "today":
-          exportParams.append('period', 'today');
-          break;
-        case "custom":
-          if (!customStart || !customEnd) {
-            alert("Please select both start and end dates");
-            setExporting(false);
-            return;
-          }
-          exportParams.append('start', customStart);
-          exportParams.append('end', customEnd);
-          break;
-        default:
-          exportParams.append('period', 'today');
+      if (exportMode === "custom") {
+        if (!customStart || !customEnd) {
+          setError("Please select both start and end dates");
+          setExporting(false);
+          return;
+        }
+        exportParams.set("start", customStart);
+        exportParams.set("end", customEnd);
+      } else {
+        exportParams.set("period", "today");
       }
 
-      // Add selected columns
-      const visibleCols = COLUMNS.filter(c => c.alwaysVisible || selectedCols.has(c.key));
-      const columnKeys = visibleCols.map(c => c.key);
-      exportParams.append('columns', JSON.stringify(columnKeys));
+      // Only send the columns the user has selected
+      const colsToExport = COLUMNS
+        .filter(c => c.alwaysVisible || selectedCols.has(c.key))
+        .map(c => c.key);
+      exportParams.set("columns", JSON.stringify(colsToExport));
 
-      // Step 1: Get total count
-      const countUrl = `/api/database-logs/${vehicleId}/count?${exportParams.toString()}`;
-      const countRes = await fetch(countUrl, {
-        headers: authHeaders,
-        signal: abortController.signal
-      });
+      const headers = authHeaders();
 
-      if (!countRes.ok) {
-        throw new Error('Failed to get row count');
-      }
+      // ---- Step 1: get total count ----
+      const countRes = await fetch(
+        `/api/database-logs/${vehicleId}/count?${exportParams}`,
+        { headers, signal: abort.signal }
+      );
+      if (!countRes.ok) throw new Error("Failed to get row count");
 
       const { total } = await countRes.json();
-      setExportTotal(total);
 
       if (total === 0) {
-        alert("No data available for the selected range");
+        setError("No data available for the selected range");
         setExporting(false);
         return;
       }
 
-      // Step 2: Start streaming export
-      const exportUrl = `/api/database-logs/${vehicleId}/export?${exportParams.toString()}`;
+      setExportTotal(total);
 
-      const exportRes = await fetch(exportUrl, {
-        headers: authHeaders,
-        signal: abortController.signal
-      });
+      // ---- Step 2: streaming export ----
+      const exportRes = await fetch(
+        `/api/database-logs/${vehicleId}/export?${exportParams}`,
+        { headers, signal: abort.signal }
+      );
 
       if (!exportRes.ok) {
-        const text = await exportRes.text().catch(() => "");
-        throw new Error(`Export failed: ${exportRes.status} ${text || exportRes.statusText}`);
+        const msg = await exportRes.text().catch(() => exportRes.statusText);
+        throw new Error(`Export failed: ${exportRes.status} ${msg}`);
       }
 
-      const totalFromHeader = exportRes.headers.get('X-Total-Rows');
-      const knownTotal = totalFromHeader ? parseInt(totalFromHeader, 10) : total;
-      if (totalFromHeader) setExportTotal(knownTotal);
+      const knownTotal = parseInt(exportRes.headers.get("X-Total-Rows") ?? "0", 10) || total;
+      setExportTotal(knownTotal);
 
-      // Read stream with rolling rows/sec tracker for ETA
+      // Rolling 5-second window for ETA
+      const RATE_WINDOW_MS = 5000;
+      const rateWindow = [];
+      const AVG_BYTES_PER_ROW = 150;
+
       const reader = exportRes.body.getReader();
       const chunks = [];
       let receivedBytes = 0;
-      let estimatedRows = 0;
-      const avgBytesPerRow = 150;
-
-      // Rolling window: track (timestamp, rowCount) pairs over last 5 seconds
-      const rateWindow = []; // [{ time: ms, rows: n }, ...]
-      const RATE_WINDOW_MS = 5000;
-      const startTime = Date.now();
 
       while (true) {
         const { done, value } = await reader.read();
-
         if (done) break;
 
         chunks.push(value);
         receivedBytes += value.length;
 
         const now = Date.now();
-        estimatedRows = Math.floor(receivedBytes / avgBytesPerRow);
-        const currentRows = Math.min(estimatedRows, knownTotal);
+        const estimatedRows = Math.min(Math.floor(receivedBytes / AVG_BYTES_PER_ROW), knownTotal);
+        rateWindow.push({ time: now, rows: estimatedRows });
 
-        // Push current measurement into rolling window
-        rateWindow.push({ time: now, rows: currentRows });
-
-        // Trim entries older than RATE_WINDOW_MS
+        // Trim old entries
         while (rateWindow.length > 1 && now - rateWindow[0].time > RATE_WINDOW_MS) {
           rateWindow.shift();
         }
 
-        // Calculate rows/sec from rolling window
+        // Compute ETA from rolling window
         let eta = null;
         if (rateWindow.length >= 2) {
-          const windowDuration = (rateWindow[rateWindow.length - 1].time - rateWindow[0].time) / 1000;
-          const windowRows = rateWindow[rateWindow.length - 1].rows - rateWindow[0].rows;
-          const rowsPerSec = windowDuration > 0 ? windowRows / windowDuration : 0;
-
-          if (rowsPerSec > 0) {
-            const remaining = knownTotal - currentRows;
-            eta = fmtEta(remaining / rowsPerSec);
-          }
+          const dt = (rateWindow.at(-1).time - rateWindow[0].time) / 1000;
+          const dr = rateWindow.at(-1).rows - rateWindow[0].rows;
+          const rps = dt > 0 ? dr / dt : 0;
+          if (rps > 0) eta = fmtEta((knownTotal - estimatedRows) / rps);
         }
 
-        setExportCurrent(currentRows);
+        setExportCurrent(estimatedRows);
         setExportEta(eta);
-        const progress = knownTotal > 0 ? Math.min((currentRows / knownTotal) * 100, 99) : 0;
-        setExportProgress(progress);
+        setExportProgress(knownTotal > 0 ? Math.min((estimatedRows / knownTotal) * 100, 99) : 0);
       }
 
-      // Combine all chunks into a blob and trigger download
-      const blob = new Blob(chunks, { type: 'text/csv' });
+      // Download the blob
+      const blob = new Blob(chunks, { type: "text/csv" });
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
 
-      let filename = `raw_telemetry_${vehicleId}`;
-      switch (exportMode) {
-        case "today": filename += `_today_${todayStr}`; break;
-        case "custom": filename += `_from_${customStart}_to_${customEnd}`; break;
-      }
-      filename += `.csv`;
+      const rangeTag = exportMode === "custom"
+        ? `${customStart}_to_${customEnd}`
+        : `today_${todayStr}`;
+      a.download = `raw_telemetry_${vehicleId}_${rangeTag}.csv`;
 
-      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -332,70 +313,87 @@ export default function DatabaseLogs() {
       setExportProgress(100);
       setExportCurrent(knownTotal);
       setExportEta(null);
+      setExportDone(true);
 
       setTimeout(() => {
         setExportProgress(0);
         setExportTotal(0);
         setExportCurrent(0);
-        setExportEta(null);
-      }, 3000);
+        setExportDone(false);
+      }, 4000);
 
     } catch (err) {
-      if (err.name === 'AbortError') {
-        console.log('Export cancelled by user');
+      if (err.name === "AbortError") {
+        console.log("Export cancelled");
       } else {
         console.error("Export error:", err);
-        setError("Failed to export data: " + err.message);
+        setError("Export failed: " + err.message);
       }
     } finally {
       setExporting(false);
+      exportAbort.current = null;
     }
   };
 
+  const cancelExport = () => {
+    exportAbort.current?.abort();
+    setExporting(false);
+    setExportProgress(0);
+    setExportTotal(0);
+    setExportCurrent(0);
+    setExportEta(null);
+  };
+
   /* ========================= EFFECTS ========================= */
+  // Reset + reload when vehicle or date changes
   useEffect(() => {
     setRows([]);
     setCursor(null);
     setHasMore(true);
-    fetchLogs(true);
+    setError(null);
   }, [vehicleId, selectedDate]);
 
+  // Trigger initial fetch after reset
+  useEffect(() => {
+    if (rows.length === 0 && hasMore && !loading) {
+      fetchLogs(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vehicleId, selectedDate]);
+
+  // Infinite scroll via IntersectionObserver
   useEffect(() => {
     if (!hasMore || rows.length === 0) return;
 
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !loading) {
-          fetchLogs(false);
-        }
-      },
+      ([entry]) => { if (entry.isIntersecting && !loading) fetchLogs(false); },
       { rootMargin: "600px" }
     );
 
-    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
-
+    const el = loadMoreRef.current;
+    if (el) observer.observe(el);
     return () => observer.disconnect();
-  }, [rows.length, hasMore, loading]);
+  }, [rows.length, hasMore, loading, fetchLogs]);
 
   /* ========================= RENDER ========================= */
-  const visibleColumns = COLUMNS.filter(c => c.alwaysVisible || selectedCols.has(c.key));
-
   return (
     <div className="space-y-6 pb-8">
       <h2 className="text-2xl font-bold text-center bg-gradient-to-r from-orange-400 to-amber-500 bg-clip-text text-transparent">
         Raw Telemetry Logs
       </h2>
 
-      {/* Controls */}
-      <div className="bg-gray-900/90 border border-orange-500/30 rounded-xl p-6 shadow-lg">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+      {/* ---- Controls Panel ---- */}
+      <div className="bg-gray-900/90 border border-orange-500/30 rounded-xl p-6 shadow-lg space-y-6">
+
+        {/* Date + export range row */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="flex items-center gap-3">
             <label className="text-orange-300 font-medium min-w-32">Display Date:</label>
             <input
               type="date"
               value={selectedDate}
-              onChange={e => setSelectedDate(e.target.value)}
               max={todayStr}
+              onChange={e => setSelectedDate(e.target.value)}
               className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition"
             />
           </div>
@@ -413,15 +411,16 @@ export default function DatabaseLogs() {
           </div>
         </div>
 
+        {/* Custom date range */}
         {exportMode === "custom" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 p-4 bg-gray-800/30 rounded-lg border border-orange-500/20">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-gray-800/30 rounded-lg border border-orange-500/20">
             <div className="flex items-center gap-3">
               <label className="text-orange-300 font-medium">Start Date:</label>
               <input
                 type="date"
                 value={customStart}
-                onChange={e => setCustomStart(e.target.value)}
                 max={customEnd}
+                onChange={e => setCustomStart(e.target.value)}
                 className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition"
               />
             </div>
@@ -430,57 +429,65 @@ export default function DatabaseLogs() {
               <input
                 type="date"
                 value={customEnd}
-                onChange={e => setCustomEnd(e.target.value)}
                 min={customStart}
                 max={todayStr}
+                onChange={e => setCustomEnd(e.target.value)}
                 className="px-4 py-2 bg-gray-800 border border-orange-500/50 rounded-lg text-orange-200 focus:border-orange-400 outline-none transition"
               />
             </div>
           </div>
         )}
 
+        {/* Export button + progress */}
         <div className="flex flex-col items-center gap-4">
-          <button
-            onClick={exportData}
-            disabled={exporting || loading}
-            className="px-10 py-4 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-xl font-bold text-lg shadow-xl hover:shadow-2xl disabled:opacity-60 disabled:cursor-not-allowed transition flex items-center gap-4"
-          >
-            {exporting ? (
-              <>
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Exporting... {exportProgress > 0 ? `${exportProgress.toFixed(0)}%` : 'Please wait'}
-              </>
-            ) : exportProgress === 100 ? (
-              <>
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                Export Complete!
-              </>
-            ) : (
-              <>
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Export Data
-              </>
-            )}
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={exportData}
+              disabled={exporting || loading}
+              className="px-10 py-4 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-xl font-bold text-lg shadow-xl hover:shadow-2xl disabled:opacity-60 disabled:cursor-not-allowed transition flex items-center gap-3"
+            >
+              {exporting ? (
+                <>
+                  <SpinnerIcon />
+                  Exporting… {exportProgress > 0 ? `${exportProgress.toFixed(0)}%` : "Preparing…"}
+                </>
+              ) : exportDone ? (
+                <>
+                  <CheckIcon />
+                  Export Complete!
+                </>
+              ) : (
+                <>
+                  <DownloadIcon />
+                  Export Data
+                </>
+              )}
+            </button>
 
-          {/* Progress Bar */}
+            {exporting && (
+              <button
+                onClick={cancelExport}
+                className="px-5 py-4 bg-red-700/80 hover:bg-red-600 text-white rounded-xl font-semibold transition"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+
+          {/* Preparing banner (before we know the total) */}
+          {exporting && exportTotal === 0 && (
+            <div className="w-full max-w-2xl p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
+              <p className="text-blue-300 text-sm">⏳ Calculating row count — this is fast, please wait…</p>
+            </div>
+          )}
+
+          {/* Progress bar */}
           {exporting && exportTotal > 0 && (
-            <div className="w-full max-w-2xl">
-              <div className="flex justify-between text-sm text-orange-300 mb-2">
-                <span>
-                  {exportCurrent.toLocaleString()} / {exportTotal.toLocaleString()} rows
-                </span>
+            <div className="w-full max-w-2xl space-y-2">
+              <div className="flex justify-between text-sm text-orange-300">
+                <span>{exportCurrent.toLocaleString()} / {exportTotal.toLocaleString()} rows</span>
                 <span className="flex items-center gap-3">
-                  {exportEta && (
-                    <span className="text-orange-400/80 text-xs">{exportEta}</span>
-                  )}
+                  {exportEta && <span className="text-orange-400/80 text-xs">{exportEta}</span>}
                   <span>{exportProgress.toFixed(1)}%</span>
                 </span>
               </div>
@@ -489,44 +496,50 @@ export default function DatabaseLogs() {
                   className="h-full bg-gradient-to-r from-emerald-500 to-green-500 transition-all duration-300 ease-out flex items-center justify-end pr-2"
                   style={{ width: `${exportProgress}%` }}
                 >
-                  {exportProgress > 10 && (
+                  {exportProgress > 12 && (
                     <span className="text-xs font-bold text-white drop-shadow">
                       {exportProgress.toFixed(0)}%
                     </span>
                   )}
                 </div>
               </div>
-              <div className="text-center text-xs text-orange-400/70 mt-2">
-                ⏳ Large exports may take a few minutes. Your download will start automatically.
-              </div>
+              <p className="text-center text-xs text-orange-400/60">
+                ⏳ Download starts automatically when ready.
+              </p>
             </div>
           )}
         </div>
 
-        {/* Calculating banner */}
-        {exporting && exportTotal === 0 && (
-          <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
-            <p className="text-blue-300 text-sm">
-              ⏳ Calculating total rows... Please wait.
-            </p>
+        {/* Error banner */}
+        {error && (
+          <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-300 text-sm text-center">
+            {error}
           </div>
         )}
 
-        <div className="pt-8 mt-8 border-t border-orange-500/20">
+        {/* ---- Column selector ---- */}
+        <div className="pt-6 border-t border-orange-500/20">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-orange-400 font-semibold">
-              Visible Columns ({visibleColumns.length}/{COLUMNS.length})
+              Visible Columns ({visibleColumns.length} / {COLUMNS.length})
             </h3>
             <div className="flex gap-2">
-              <button onClick={selectAllCols} className="text-xs px-4 py-1.5 bg-orange-500/20 border border-orange-500/40 rounded hover:bg-orange-500/30 transition">
+              <button
+                onClick={selectAllCols}
+                className="text-xs px-4 py-1.5 bg-orange-500/20 border border-orange-500/40 rounded hover:bg-orange-500/30 transition"
+              >
                 Select All
               </button>
-              <button onClick={deselectAllCols} className="text-xs px-4 py-1.5 bg-gray-800/50 border border-orange-500/30 rounded hover:bg-gray-700/50 transition">
+              <button
+                onClick={deselectAllCols}
+                className="text-xs px-4 py-1.5 bg-gray-800/50 border border-orange-500/30 rounded hover:bg-gray-700/50 transition"
+              >
                 Clear
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 max-h-80 overflow-y-auto bg-black/30 rounded-lg p-4">
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 max-h-80 overflow-y-auto bg-black/30 rounded-lg p-4">
             {COLUMNS.filter(c => !c.alwaysVisible).map(col => (
               <label
                 key={col.key}
@@ -540,7 +553,7 @@ export default function DatabaseLogs() {
                   type="checkbox"
                   checked={selectedCols.has(col.key)}
                   onChange={() => toggleCol(col.key)}
-                  className="w-4 h-4 accent-orange-500 rounded"
+                  className="w-4 h-4 accent-orange-500 rounded flex-shrink-0"
                 />
                 <span className="truncate">{col.label}</span>
               </label>
@@ -549,31 +562,50 @@ export default function DatabaseLogs() {
         </div>
       </div>
 
-      {/* Table */}
+      {/* ---- Data Table ---- */}
       <div className="bg-gray-900/90 border border-orange-500/30 rounded-xl overflow-hidden shadow-lg">
-        <div className="px-6 py-4 bg-gray-950/80 border-b border-orange-500/20 text-orange-300 font-medium">
-          Showing {rows.length.toLocaleString()} record{rows.length !== 1 ? "s" : ""} for {selectedDate}
+        <div className="px-6 py-4 bg-gray-950/80 border-b border-orange-500/20 text-orange-300 font-medium flex justify-between items-center">
+          <span>
+            {rows.length.toLocaleString()} record{rows.length !== 1 ? "s" : ""} for {selectedDate}
+          </span>
+          {loading && rows.length > 0 && (
+            <span className="text-xs text-orange-400/70 flex items-center gap-1">
+              <SpinnerIcon small /> Loading…
+            </span>
+          )}
         </div>
 
         <div className="overflow-auto max-h-[700px]">
-          {error && (
-            <div className="p-12 text-center text-red-400">
-              {error}
+          {/* Initial loading */}
+          {loading && rows.length === 0 && (
+            <div className="p-16 text-center text-orange-400/70 flex flex-col items-center gap-3">
+              <SpinnerIcon />
+              <span>Loading telemetry data…</span>
             </div>
           )}
 
-          {!error && rows.length === 0 && !loading && (
+          {/* Empty state */}
+          {!loading && rows.length === 0 && !error && (
             <div className="p-16 text-center text-orange-400/70">
               No telemetry data available for {selectedDate}
             </div>
           )}
 
+          {/* Error state (table-level) */}
+          {error && rows.length === 0 && (
+            <div className="p-12 text-center text-red-400">{error}</div>
+          )}
+
+          {/* Table */}
           {rows.length > 0 && (
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-gray-950/95 z-10 border-b-2 border-orange-500/30">
                 <tr>
                   {visibleColumns.map(col => (
-                    <th key={col.key} className="px-5 py-3.5 text-left text-orange-400 font-semibold uppercase tracking-wider min-w-[140px]">
+                    <th
+                      key={col.key}
+                      className="px-5 py-3.5 text-left text-orange-400 font-semibold uppercase tracking-wider min-w-[140px] whitespace-nowrap"
+                    >
                       {col.label}
                     </th>
                   ))}
@@ -583,7 +615,7 @@ export default function DatabaseLogs() {
                 {rows.map((row, i) => (
                   <tr key={i} className="hover:bg-orange-500/5 transition">
                     {visibleColumns.map(col => (
-                      <td key={col.key} className="px-5 py-3.5 text-orange-100">
+                      <td key={col.key} className="px-5 py-3.5 text-orange-100 whitespace-nowrap">
                         {row[col.key] ?? "–"}
                       </td>
                     ))}
@@ -593,15 +625,17 @@ export default function DatabaseLogs() {
             </table>
           )}
 
+          {/* Infinite scroll sentinel */}
           {hasMore && (
-            <div ref={loadMoreRef} className="p-8 text-center text-orange-300">
-              {loading ? "Loading more records..." : "Scroll down to load more"}
+            <div ref={loadMoreRef} className="p-8 text-center text-orange-300 text-sm">
+              {loading ? "Loading more records…" : "Scroll down to load more"}
             </div>
           )}
 
+          {/* End of data */}
           {!hasMore && rows.length > 0 && (
-            <div className="p-8 text-center text-orange-400/70 border-t border-orange-500/20">
-              End of data • Total loaded: {rows.length.toLocaleString()} rows
+            <div className="p-8 text-center text-orange-400/70 border-t border-orange-500/20 text-sm">
+              End of data · {rows.length.toLocaleString()} rows loaded
             </div>
           )}
         </div>
@@ -610,11 +644,33 @@ export default function DatabaseLogs() {
   );
 }
 
-/* ========================= HELPERS ========================= */
-const fmtDate = (date) => {
-  if (!(date instanceof Date) || isNaN(date)) return "";
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
+/* ============================================================
+   ICON MICRO-COMPONENTS
+   ============================================================ */
+function SpinnerIcon({ small = false }) {
+  const sz = small ? "h-3 w-3" : "h-5 w-5";
+  return (
+    <svg className={`animate-spin ${sz}`} viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+    </svg>
+  );
+}
