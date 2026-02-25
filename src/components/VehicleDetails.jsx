@@ -6,7 +6,8 @@ import MotorAnalytics from "./tabs/MotorAnalytics";
 import BatteryAnalytics from "./tabs/BatteryAnalytics";
 import MotorFaults from "./tabs/MotorFaults";
 import DatabaseLogs from "./tabs/DatabaseLogs";
-import DatabaseModuleExport from "./tabs/DatabaseModuleExport"; // ✅ NEW
+import DatabaseModuleExport from "./tabs/DatabaseModuleExport";
+import LiveCharts from "./tabs/LiveCharts"; // ✅ NEW
 
 /* ========================= PAGE SHELL ========================= */
 export default function VehicleDetails() {
@@ -15,11 +16,9 @@ export default function VehicleDetails() {
   const [activeTab, setActiveTab] = useState("Live View");
 
   useEffect(() => {
-    // Load selected vehicle
     const vehicleData = localStorage.getItem("selectedVehicle");
     if (vehicleData) setVehicle(JSON.parse(vehicleData));
 
-    // Load logged-in user to check role
     const userData = localStorage.getItem("user");
     if (userData) {
       const parsed = JSON.parse(userData);
@@ -30,14 +29,11 @@ export default function VehicleDetails() {
   if (!vehicle) return null;
 
   const isCustomer = user?.role === "customer";
-  const isAdmin = user?.role === "admin";
 
   /* ========================= CUSTOMER VIEW ========================= */
-  // Customers only see Live View
   if (isCustomer) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-900 to-black text-white">
-        {/* ===== HEADER ===== */}
         <div className="px-6 pt-10 pb-6 border-b border-orange-500/20">
           <div className="max-w-6xl mx-auto">
             <h1 className="text-4xl font-bold bg-gradient-to-r from-orange-400 via-red-400 to-orange-300 bg-clip-text text-transparent">
@@ -52,8 +48,6 @@ export default function VehicleDetails() {
             </p>
           </div>
         </div>
-
-        {/* ===== FULL LIVE VIEW ===== */}
         <div className="px-6 py-10">
           <div className="max-w-6xl mx-auto">
             <LiveView />
@@ -64,14 +58,14 @@ export default function VehicleDetails() {
   }
 
   /* ========================= ADMIN VIEW ========================= */
-
   const tabs = [
     "Live View",
+    "Live Charts",      // ✅ NEW TAB
     "Motor Analytics",
     "Battery Analytics",
-    "Motor Faults",
+    "Faults",
     "Database / Log",
-    "Module Export", // ✅ NEW TAB
+    "Module Export",
   ];
 
   return (
@@ -113,12 +107,13 @@ export default function VehicleDetails() {
       {/* ===== TAB CONTENT ===== */}
       <div className="px-6 py-10">
         <div className="max-w-6xl mx-auto">
-          {activeTab === "Live View" && <LiveView />}
-          {activeTab === "Motor Analytics" && <MotorAnalytics />}
+          {activeTab === "Live View"         && <LiveView />}
+          {activeTab === "Live Charts"       && <LiveCharts />}  {/* ✅ */}
+          {activeTab === "Motor Analytics"   && <MotorAnalytics />}
           {activeTab === "Battery Analytics" && <BatteryAnalytics />}
-          {activeTab === "Motor Faults" && <MotorFaults />}
-          {activeTab === "Database / Log" && <DatabaseLogs />}
-          {activeTab === "Module Export" && <DatabaseModuleExport />} {/* ✅ */}
+          {activeTab === "Faults"      && <MotorFaults />}
+          {activeTab === "Database / Log"    && <DatabaseLogs />}
+          {activeTab === "Module Export"     && <DatabaseModuleExport />}
         </div>
       </div>
     </div>

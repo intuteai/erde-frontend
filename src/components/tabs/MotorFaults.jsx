@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
-/* ========================= MOTOR FAULTS ========================= */
+/* ========================= FAULTS ========================= */
 export default function MotorFaults() {
   const { id } = useParams();
 
@@ -67,7 +67,7 @@ export default function MotorFaults() {
     // Unfixed (active) faults first, then newest activations
     return [...list].sort((a, b) => {
       if (!!a.cleared_at !== !!b.cleared_at) {
-        return a.cleared_at ? 1 : -1; // active (no cleared_at) comes first
+        return a.cleared_at ? 1 : -1;
       }
       return new Date(b.activated_at) - new Date(a.activated_at);
     });
@@ -105,7 +105,7 @@ export default function MotorFaults() {
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = `motor_faults_${selectedDate || "30days"}.csv`;
+    a.download = `faults_${selectedDate || "30days"}.csv`;
     a.click();
 
     URL.revokeObjectURL(url);
@@ -130,9 +130,9 @@ export default function MotorFaults() {
 
   return (
     <div className="space-y-6 pb-8">
-      {/* ===== CENTERED TITLE ===== */}
+      {/* ===== TITLE ===== */}
       <h2 className="text-2xl font-bold text-center bg-gradient-to-r from-orange-400 via-orange-500 to-amber-500 bg-clip-text text-transparent mb-3">
-        Motor Fault History
+        Fault History
       </h2>
 
       {/* ===== DATE FILTER ===== */}
@@ -203,7 +203,7 @@ export default function MotorFaults() {
             {selectedDate && <span className="text-orange-200/70"> on {selectedDate}</span>}
             {selectedCodes.size > 0 && <span className="text-orange-200/70"> (filtered)</span>}
           </div>
-          
+
           <button
             onClick={exportCSV}
             className="px-5 py-2 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:scale-105 transition-all text-sm"
@@ -246,8 +246,8 @@ export default function MotorFaults() {
                       {new Date(l.activated_at).toLocaleString()}
                     </div>
                     <div className={`text-xs px-3 py-1 rounded-full inline-block ${
-                      l.cleared_at 
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' 
+                      l.cleared_at
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                         : 'bg-red-500/20 text-red-300 border border-red-500/40'
                     }`}>
                       {l.cleared_at
