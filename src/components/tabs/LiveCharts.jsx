@@ -35,6 +35,7 @@ const extractFields = (raw) => ({
   motor_torque_nm: coerceNum(raw.motor_torque_nm ?? raw.motor_torque_value),
   dc_current_a:    coerceNum(raw.dc_current_a    ?? raw.battery_current_a),
   ac_current_a:    coerceNum(raw.ac_current_a    ?? raw.motor_ac_current_a),
+  ac_voltage_v:    coerceNum(raw.ac_voltage_v    ?? raw.motor_ac_voltage_v),  // ← ADDED
 });
 
 /* ─────────────────────────────────────────────────────────────
@@ -85,6 +86,19 @@ const CHARTS = [
     fixed: 1,
     span:  "",
   },
+  // ── ADDED: Motor AC Voltage ──────────────────────────────
+  {
+    key:   "ac_voltage_v",
+    label: "Motor AC Voltage",
+    sub:   "Phase voltage to motor windings",
+    unit:  "V",
+    color: "#818cf8",
+    glow:  "rgba(129,140,248,0.5)",
+    grad:  ["rgba(129,140,248,0.38)", "rgba(129,140,248,0.01)"],
+    fixed: 1,
+    span:  "",
+  },
+  // ── span removed from md:col-span-2 → "" so it pairs with voltage above ──
   {
     key:   "ac_current_a",
     label: "Motor AC Current",
@@ -94,7 +108,7 @@ const CHARTS = [
     glow:  "rgba(56,189,248,0.5)",
     grad:  ["rgba(56,189,248,0.38)", "rgba(56,189,248,0.01)"],
     fixed: 1,
-    span:  "md:col-span-2",
+    span:  "",
   },
 ];
 
@@ -178,7 +192,6 @@ function ChartCard({ cfg, data, isLive, isStale }) {
 
   const gradId    = `grad_${cfg.key}`;
   const filtId    = `filt_${cfg.key}`;
-  // When stale, desaturate the accent color slightly
   const cardColor = isStale ? "#6b7280" : cfg.color;
 
   return (
@@ -372,22 +385,14 @@ export default function LiveCharts() {
   const esRef     = useRef(null);
   const seenTsMs  = useRef(new Set());
 
-  // Identical to LiveView
   const isActivelyLive = lastUpdateTime
     ? Date.now() - lastUpdateTime.getTime() < LIVE_THRESHOLD_MS
     : false;
 
-  // True when seed data is from a past session (vehicle was offline)
   const isStaleSession = lastUpdateTime
     ? Date.now() - lastUpdateTime.getTime() > STALE_THRESHOLD_MS
     : false;
 
-  /* ─────────────────────────────────────────
-     Add a row to the rolling buffer.
-     Works for both seed rows and SSE rows.
-     Dedup by numeric ms — immune to string
-     format differences between seed / SSE.
-  ───────────────────────────────────────── */
   const addPoint = useCallback((raw) => {
     if (!raw?.recorded_at) return;
     const ts   = new Date(raw.recorded_at);
@@ -399,9 +404,6 @@ export default function LiveCharts() {
     const point = { ts: tsMs, label: toLabel(ts), ...extractFields(raw) };
 
     setDataPoints((prev) => {
-      // For stale session data we don't trim by wall-clock window —
-      // we just keep the last MAX_POINTS and let the user see history.
-      // Once live data arrives, the rolling window takes over.
       const isOldData = Date.now() - tsMs > STALE_THRESHOLD_MS;
       if (isOldData) {
         return [...prev, point].slice(-MAX_POINTS);
@@ -413,11 +415,7 @@ export default function LiveCharts() {
     });
   }, []);
 
-  /* ─────────────────────────────────────────
-     1. Seed — last 5 min anchored to MAX
-        recorded_at (immune to clock skew).
-        Returns historical data even if stale.
-  ───────────────────────────────────────── */
+  /* ── 1. Seed ── */
   useEffect(() => {
     if (!id) return;
     const token = localStorage.getItem("token");
@@ -460,9 +458,7 @@ export default function LiveCharts() {
     })();
   }, [id]);
 
-  /* ─────────────────────────────────────────
-     2. SSE — identical pattern to LiveView
-  ───────────────────────────────────────── */
+  /* ── 2. SSE ── */
   useEffect(() => {
     if (!id) return;
     const token = localStorage.getItem("token");
@@ -477,7 +473,6 @@ export default function LiveCharts() {
       try {
         const data = JSON.parse(event.data);
         addPoint(data);
-        // Identical to LiveView
         if (data.recorded_at) setLastUpdateTime(new Date(data.recorded_at));
         setError(null);
       } catch (e) {
@@ -485,7 +480,6 @@ export default function LiveCharts() {
       }
     };
 
-    // Identical to LiveView
     es.onerror = () => {
       console.warn("[LiveCharts] SSE disconnected – will auto-reconnect");
       setError("Live stream lost – showing last known data");
@@ -498,12 +492,7 @@ export default function LiveCharts() {
     };
   }, [id, addPoint]);
 
-  /* ─────────────────────────────────────────
-     3. Rolling-window trimmer
-     Only trims when data is fresh (live).
-     Stale session data stays until live
-     data arrives and displaces it.
-  ───────────────────────────────────────── */
+  /* ── 3. Rolling-window trimmer ── */
   useEffect(() => {
     const timer = setInterval(() => {
       if (isActivelyLive) {
@@ -518,9 +507,7 @@ export default function LiveCharts() {
     return () => clearInterval(timer);
   }, [isActivelyLive]);
 
-  /* ─────────────────────────────────────────
-     Render
-  ───────────────────────────────────────── */
+  /* ── Render ── */
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-36 gap-5">
@@ -547,7 +534,7 @@ export default function LiveCharts() {
           Live Performance Charts
         </h1>
 
-        {/* Status row — identical markup/logic to LiveView */}
+        {/* Status row */}
         <div className="flex items-center justify-between">
           <span
             className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold ${
@@ -575,7 +562,7 @@ export default function LiveCharts() {
           </div>
         )}
 
-        {/* SSE error banner — identical to LiveView */}
+        {/* SSE error banner */}
         {error && !isStaleSession && (
           <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-2 mt-3">
             ⚠ {error}
