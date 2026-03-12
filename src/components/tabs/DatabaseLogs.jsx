@@ -5,67 +5,178 @@ import { useParams } from "react-router-dom";
    COLUMN DEFINITIONS  (single source of truth — mirrors backend)
    ============================================================ */
 const COLUMNS = [
-  { key: "recorded_at",                 label: "Timestamp",                       alwaysVisible: true },
-  { key: "soc_percent",                 label: "SOC (%)" },
-  { key: "battery_status",              label: "Battery Status" },
-  { key: "stack_voltage_v",             label: "Stack Voltage (V)" },
-  { key: "battery_current_a",           label: "Battery Current (A)" },
-  { key: "output_power_kw",             label: "Output Power (kW)" },
-  { key: "charger_current_demand_a",    label: "Charger Current Demand (A)" },
-  { key: "charger_voltage_demand_v",    label: "Charger Voltage Demand (V)" },
-  { key: "max_voltage_v",               label: "Max Cell Voltage (V)" },
-  { key: "min_voltage_v",               label: "Min Cell Voltage (V)" },
-  { key: "avg_voltage_v",               label: "Avg Cell Voltage (V)" },
-  { key: "max_temp_c",                  label: "Max Battery Temp (°C)" },
-  { key: "min_temp_c",                  label: "Min Battery Temp (°C)" },
-  { key: "avg_temp_c",                  label: "Avg Battery Temp (°C)" },
-  { key: "motor_torque_limit",          label: "Motor Torque Limit (Nm)" },
-  { key: "motor_torque_value",          label: "Motor Torque Value (Nm)" },
-  { key: "motor_speed_rpm",             label: "Motor Speed (RPM)" },
-  { key: "motor_rotation_dir",          label: "Motor Rotation Direction" },
-  { key: "motor_operation_mode",        label: "Motor Operation Mode" },
-  { key: "mcu_enable_state",            label: "MCU Enable State" },
-  { key: "motor_ac_current_a",          label: "Motor AC Current (A)" },
-  { key: "motor_ac_voltage_v",          label: "Motor AC Voltage (V)" },
-  { key: "dc_side_voltage_v",           label: "DC Side Voltage (V)" },
-  { key: "motor_temp_c",                label: "Motor Temperature (°C)" },
-  { key: "mcu_temp_c",                  label: "MCU Temperature (°C)" },
-  { key: "radiator_temp_c",             label: "Radiator Temperature (°C)" },
-  { key: "motor_status_word",           label: "Motor Status Word" },
-  { key: "motor_freq_raw",              label: "Motor Frequency Raw" },
-  { key: "motor_total_wattage_w",       label: "Motor Total Wattage (W)" },
-  { key: "btms_command_mode",           label: "BTMS Command Mode" },
-  { key: "btms_status_mode",            label: "BTMS Status Mode" },
-  { key: "btms_hv_request",             label: "BTMS HV Request" },
-  { key: "btms_charge_status",          label: "BTMS Charge Status" },
-  { key: "bms_hv_relay_state",          label: "BMS HV Relay State" },
-  { key: "btms_hv_relay_state",         label: "BTMS HV Relay State" },
-  { key: "btms_target_temp_c",          label: "BTMS Target Temp (°C)" },
-  { key: "btms_inlet_temp_c",           label: "BTMS Inlet Temp (°C)" },
-  { key: "btms_outlet_temp_c",          label: "BTMS Outlet Temp (°C)" },
-  { key: "btms_demand_power_kw",        label: "BTMS Demand Power (kW)" },
-  { key: "bms_pack_voltage_v",          label: "BMS Pack Voltage (V)" },
-  { key: "bms_life_counter",            label: "BMS Life Counter" },
-  { key: "btms_command_crc",            label: "BTMS Command CRC" },
-  { key: "dcdc_pri_a_mosfet_temp_c",   label: "DCDC Pri A MOSFET Temp (°C)" },
-  { key: "dcdc_sec_ls_mosfet_temp_c",  label: "DCDC Sec LS MOSFET Temp (°C)" },
-  { key: "dcdc_sec_hs_mosfet_temp_c",  label: "DCDC Sec HS MOSFET Temp (°C)" },
-  { key: "dcdc_pri_c_mosfet_temp_c",   label: "DCDC Pri C MOSFET Temp (°C)" },
-  { key: "dcdc_max_temp_c",            label: "DCDC Max Temp (°C)" },
-  { key: "dcdc_input_voltage_v",       label: "DCDC Input Voltage (V)" },
-  { key: "dcdc_input_current_a",       label: "DCDC Input Current (A)" },
-  { key: "dcdc_output_voltage_v",      label: "DCDC Output Voltage (V)" },
-  { key: "dcdc_output_current_a",      label: "DCDC Output Current (A)" },
-  { key: "dcdc_occurence_count",       label: "DCDC Overcurrent Count" },
-  { key: "compressor_input_voltage_v", label: "Compressor Input Voltage (V)" },
-  { key: "compressor_input_current_a", label: "Compressor Input Current (A)" },
-  { key: "compressor_output_voltage_v",label: "Compressor Output Voltage (V)" },
-  { key: "compressor_output_current_a",label: "Compressor Output Current (A)" },
-  { key: "total_running_hrs",          label: "Total Running Hours" },
-  { key: "last_trip_hrs",              label: "Last Trip Hours" },
-  { key: "total_kwh_consumed",         label: "Total kWh Consumed" },
-  { key: "last_trip_kwh",              label: "Last Trip kWh" },
+  { key: "recorded_at",                    label: "Timestamp",                        alwaysVisible: true },
+  // Battery / BMS / Charger
+  { key: "soc_percent",                    label: "SOC (%)" },
+  { key: "battery_status",                 label: "Battery Status" },
+  { key: "stack_voltage_v",                label: "Stack Voltage (V)" },
+  { key: "battery_current_a",              label: "Battery Current (A)" },
+  { key: "output_power_kw",                label: "Output Power (kW)" },
+  { key: "charger_current_demand_a",       label: "Charger Current Demand (A)" },
+  { key: "charger_voltage_demand_v",       label: "Charger Voltage Demand (V)" },
+  { key: "max_voltage_v",                  label: "Max Cell Voltage (V)" },
+  { key: "min_voltage_v",                  label: "Min Cell Voltage (V)" },
+  { key: "avg_voltage_v",                  label: "Avg Cell Voltage (V)" },
+  { key: "max_temp_c",                     label: "Max Battery Temp (°C)" },
+  { key: "min_temp_c",                     label: "Min Battery Temp (°C)" },
+  { key: "avg_temp_c",                     label: "Avg Battery Temp (°C)" },
+  // Motor / MCU
+  { key: "motor_torque_limit",             label: "Motor Torque Limit (Nm)" },
+  { key: "motor_torque_value",             label: "Motor Torque Value (Nm)" },
+  { key: "motor_speed_rpm",                label: "Motor Speed (RPM)" },
+  { key: "motor_rotation_dir",             label: "Motor Rotation Direction" },
+  { key: "motor_operation_mode",           label: "Motor Operation Mode" },
+  { key: "mcu_enable_state",               label: "MCU Enable State" },
+  { key: "motor_ac_current_a",             label: "Motor AC Current (A)" },
+  { key: "motor_ac_voltage_v",             label: "Motor AC Voltage (V)" },
+  { key: "dc_side_voltage_v",              label: "DC Side Voltage (V)" },
+  { key: "motor_temp_c",                   label: "Motor Temperature (°C)" },
+  { key: "mcu_temp_c",                     label: "MCU Temperature (°C)" },
+  { key: "radiator_temp_c",                label: "Radiator Temperature (°C)" },
+  { key: "motor_status_word",              label: "Motor Status Word" },
+  { key: "motor_freq_raw",                 label: "Motor Frequency Raw" },
+  { key: "motor_total_wattage_w",          label: "Motor Total Wattage (W)" },
+  // BTMS
+  { key: "btms_command_mode",              label: "BTMS Command Mode" },
+  { key: "btms_status_mode",               label: "BTMS Status Mode" },
+  { key: "btms_hv_request",               label: "BTMS HV Request" },
+  { key: "btms_charge_status",             label: "BTMS Charge Status" },
+  { key: "bms_hv_relay_state",             label: "BMS HV Relay State" },
+  { key: "btms_hv_relay_state",            label: "BTMS HV Relay State" },
+  { key: "btms_target_temp_c",             label: "BTMS Target Temp (°C)" },
+  { key: "btms_inlet_temp_c",              label: "BTMS Inlet Temp (°C)" },
+  { key: "btms_outlet_temp_c",             label: "BTMS Outlet Temp (°C)" },
+  { key: "btms_demand_power_kw",           label: "BTMS Demand Power (kW)" },
+  { key: "bms_pack_voltage_v",             label: "BMS Pack Voltage (V)" },
+  { key: "bms_life_counter",               label: "BMS Life Counter" },
+  { key: "btms_command_crc",               label: "BTMS Command CRC" },
+  // DC-DC Converter
+  { key: "dcdc_pri_a_mosfet_temp_c",      label: "DCDC Pri A MOSFET Temp (°C)" },
+  { key: "dcdc_sec_ls_mosfet_temp_c",     label: "DCDC Sec LS MOSFET Temp (°C)" },
+  { key: "dcdc_sec_hs_mosfet_temp_c",     label: "DCDC Sec HS MOSFET Temp (°C)" },
+  { key: "dcdc_pri_c_mosfet_temp_c",      label: "DCDC Pri C MOSFET Temp (°C)" },
+  { key: "dcdc_max_temp_c",               label: "DCDC Max Temp (°C)" },
+  { key: "dcdc_input_voltage_v",          label: "DCDC Input Voltage (V)" },
+  { key: "dcdc_input_current_a",          label: "DCDC Input Current (A)" },
+  { key: "dcdc_output_voltage_v",         label: "DCDC Output Voltage (V)" },
+  { key: "dcdc_output_current_a",         label: "DCDC Output Current (A)" },
+  { key: "dcdc_occurence_count",          label: "DCDC Overcurrent Count" },
+  // Air Compressor
+  { key: "compressor_input_voltage_v",    label: "Compressor Input Voltage (V)" },
+  { key: "compressor_input_current_a",    label: "Compressor Input Current (A)" },
+  { key: "compressor_output_voltage_v",   label: "Compressor Output Voltage (V)" },
+  { key: "compressor_output_current_a",   label: "Compressor Output Current (A)" },
+  // ODO / Trip
+  { key: "total_running_hrs",             label: "Total Running Hours" },
+  { key: "last_trip_hrs",                 label: "Last Trip Hours" },
+  { key: "total_kwh_consumed",            label: "Total kWh Consumed" },
+  { key: "last_trip_kwh",                 label: "Last Trip kWh" },
+  // EVCC1 — EV Charging Controller
+  { key: "evcc1_pwr_stat",               label: "EVCC1 Power Status" },
+  { key: "evcc1_socket_stat",            label: "EVCC1 Socket Status" },
+  { key: "evcc1_evse_stat",              label: "EVCC1 EVSE Status" },
+  { key: "evcc1_cp_stat",                label: "EVCC1 CP State" },
+  { key: "evcc1_s2_on_stat",             label: "EVCC1 S2 Switch" },
+  { key: "evcc1_pd_stat",                label: "EVCC1 PD Status" },
+  { key: "evcc1_step_num",               label: "EVCC1 Step Number" },
+  { key: "evcc1_dcac_chg_mode",          label: "EVCC1 DC/AC Charge Mode" },
+  { key: "evcc1_chg_finished",           label: "EVCC1 Charge Finished (EVCC)" },
+  { key: "evcc1_evse_chg_finished",      label: "EVCC1 Charge Finished (EVSE)" },
+  { key: "evcc1_evse_evcc_chg_finished", label: "EVCC1 Charge Finished (Joint)" },
+  { key: "evcc1_evse_processing",        label: "EVCC1 EVSE Processing" },
+  { key: "evcc1_evse_pwr_delivery",      label: "EVCC1 Power Delivery" },
+  { key: "evcc1_evse_isol_stat",         label: "EVCC1 Isolation Status" },
+  { key: "evcc1_evse_transfer_type",     label: "EVCC1 Transfer Type" },
+  { key: "evcc1_evse_notification",      label: "EVCC1 EVSE Notification" },
+  { key: "evcc1_evse_max_volt_v",        label: "EVCC1 EVSE Max Voltage (V)" },
+  { key: "evcc1_evse_min_volt_v",        label: "EVCC1 EVSE Min Voltage (V)" },
+  { key: "evcc1_evse_max_curr_a",        label: "EVCC1 EVSE Max Current (A)" },
+  { key: "evcc1_evse_min_curr_a",        label: "EVCC1 EVSE Min Current (A)" },
+  { key: "evcc1_evse_max_pwr_w",         label: "EVCC1 EVSE Max Power (W)" },
+  { key: "evcc1_evse_max_delay_s",       label: "EVCC1 EVSE Max Delay (s)" },
+  { key: "evcc1_evse_out_volt_v",        label: "EVCC1 EVSE Output Voltage (V)" },
+  { key: "evcc1_evse_out_curr_a",        label: "EVCC1 EVSE Output Current (A)" },
+  { key: "evcc1_ac_max_current_value_a", label: "EVCC1 AC Max Current (A)" },
+  { key: "evcc1_duty_value",             label: "EVCC1 Duty Value (%)" },
+  { key: "evcc1_aag_value",              label: "EVCC1 AAG Value" },
+  { key: "evcc1_lock_stat",              label: "EVCC1 Lock Command" },
+  { key: "evcc1_lock_status",            label: "EVCC1 Lock Status" },
+  { key: "evcc1_lock_alarm",             label: "EVCC1 Lock Alarm" },
+  { key: "evcc1_error_code",             label: "EVCC1 Error Code" },
 ];
+
+/* ============================================================
+   COLUMN GROUPS  (drives the grouped column-selector UI)
+   ============================================================ */
+const COLUMN_GROUPS = [
+  {
+    label: "Battery / BMS / Charger",
+    keys: [
+      "soc_percent","battery_status","stack_voltage_v","battery_current_a",
+      "output_power_kw","charger_current_demand_a","charger_voltage_demand_v",
+      "max_voltage_v","min_voltage_v","avg_voltage_v",
+      "max_temp_c","min_temp_c","avg_temp_c",
+    ],
+  },
+  {
+    label: "Motor / MCU",
+    keys: [
+      "motor_torque_limit","motor_torque_value","motor_speed_rpm",
+      "motor_rotation_dir","motor_operation_mode","mcu_enable_state",
+      "motor_ac_current_a","motor_ac_voltage_v","dc_side_voltage_v",
+      "motor_temp_c","mcu_temp_c","radiator_temp_c",
+      "motor_status_word","motor_freq_raw","motor_total_wattage_w",
+    ],
+  },
+  {
+    label: "BTMS",
+    keys: [
+      "btms_command_mode","btms_status_mode","btms_hv_request","btms_charge_status",
+      "bms_hv_relay_state","btms_hv_relay_state","btms_target_temp_c",
+      "btms_inlet_temp_c","btms_outlet_temp_c","btms_demand_power_kw",
+      "bms_pack_voltage_v","bms_life_counter","btms_command_crc",
+    ],
+  },
+  {
+    label: "DC-DC Converter",
+    keys: [
+      "dcdc_pri_a_mosfet_temp_c","dcdc_sec_ls_mosfet_temp_c",
+      "dcdc_sec_hs_mosfet_temp_c","dcdc_pri_c_mosfet_temp_c","dcdc_max_temp_c",
+      "dcdc_input_voltage_v","dcdc_input_current_a",
+      "dcdc_output_voltage_v","dcdc_output_current_a","dcdc_occurence_count",
+    ],
+  },
+  {
+    label: "Air Compressor",
+    keys: [
+      "compressor_input_voltage_v","compressor_input_current_a",
+      "compressor_output_voltage_v","compressor_output_current_a",
+    ],
+  },
+  {
+    label: "ODO / Trip",
+    keys: ["total_running_hrs","last_trip_hrs","total_kwh_consumed","last_trip_kwh"],
+  },
+  {
+    label: "EVCC1 — EV Charging Controller",
+    keys: [
+      "evcc1_pwr_stat","evcc1_socket_stat","evcc1_evse_stat",
+      "evcc1_cp_stat","evcc1_s2_on_stat","evcc1_pd_stat",
+      "evcc1_step_num","evcc1_dcac_chg_mode",
+      "evcc1_chg_finished","evcc1_evse_chg_finished","evcc1_evse_evcc_chg_finished",
+      "evcc1_evse_processing","evcc1_evse_pwr_delivery",
+      "evcc1_evse_isol_stat","evcc1_evse_transfer_type","evcc1_evse_notification",
+      "evcc1_evse_max_volt_v","evcc1_evse_min_volt_v",
+      "evcc1_evse_max_curr_a","evcc1_evse_min_curr_a",
+      "evcc1_evse_max_pwr_w","evcc1_evse_max_delay_s",
+      "evcc1_evse_out_volt_v","evcc1_evse_out_curr_a",
+      "evcc1_ac_max_current_value_a","evcc1_duty_value","evcc1_aag_value",
+      "evcc1_lock_stat","evcc1_lock_status","evcc1_lock_alarm","evcc1_error_code",
+    ],
+  },
+];
+
+const COLUMN_MAP = Object.fromEntries(COLUMNS.map(c => [c.key, c]));
 
 /* ============================================================
    HELPERS
@@ -128,7 +239,7 @@ export default function DatabaseLogs() {
   const [customStart, setCustomStart]       = useState(todayStr);
   const [customEnd, setCustomEnd]           = useState(todayStr);
   const [exporting, setExporting]           = useState(false);
-  const [exportProgress, setExportProgress] = useState(0);   // 0-100
+  const [exportProgress, setExportProgress] = useState(0);
   const [exportTotal, setExportTotal]       = useState(0);
   const [exportCurrent, setExportCurrent]   = useState(0);
   const [exportEta, setExportEta]           = useState(null);
@@ -136,13 +247,22 @@ export default function DatabaseLogs() {
   const exportAbort                         = useRef(null);
 
   /* ========================= COLUMN HELPERS ========================= */
-  const toggleCol    = useCallback(key => setSelectedCols(prev => {
+  const toggleCol = useCallback(key => setSelectedCols(prev => {
     const next = new Set(prev);
     next.has(key) ? next.delete(key) : next.add(key);
     return next;
   }), []);
 
-  const selectAllCols  = () => setSelectedCols(new Set(COLUMNS.filter(c => !c.alwaysVisible).map(c => c.key)));
+  const toggleGroup = useCallback((keys, forceOn) => {
+    setSelectedCols(prev => {
+      const next = new Set(prev);
+      const allOn = keys.every(k => next.has(k));
+      keys.forEach(k => (forceOn ?? !allOn) ? next.add(k) : next.delete(k));
+      return next;
+    });
+  }, []);
+
+  const selectAllCols   = () => setSelectedCols(new Set(COLUMNS.filter(c => !c.alwaysVisible).map(c => c.key)));
   const deselectAllCols = () => setSelectedCols(new Set());
 
   const visibleColumns = COLUMNS.filter(c => c.alwaysVisible || selectedCols.has(c.key));
@@ -188,7 +308,6 @@ export default function DatabaseLogs() {
   const exportData = async () => {
     if (exporting) return;
 
-    // Reset export state
     setExporting(true);
     setExportProgress(0);
     setExportTotal(0);
@@ -201,7 +320,6 @@ export default function DatabaseLogs() {
     exportAbort.current = abort;
 
     try {
-      // Build URL params
       const exportParams = new URLSearchParams();
 
       if (exportMode === "custom") {
@@ -216,7 +334,6 @@ export default function DatabaseLogs() {
         exportParams.set("period", "today");
       }
 
-      // Only send the columns the user has selected
       const colsToExport = COLUMNS
         .filter(c => c.alwaysVisible || selectedCols.has(c.key))
         .map(c => c.key);
@@ -224,7 +341,6 @@ export default function DatabaseLogs() {
 
       const headers = authHeaders();
 
-      // ---- Step 1: get total count ----
       const countRes = await fetch(
         `/api/database-logs/${vehicleId}/count?${exportParams}`,
         { headers, signal: abort.signal }
@@ -241,7 +357,6 @@ export default function DatabaseLogs() {
 
       setExportTotal(total);
 
-      // ---- Step 2: streaming export ----
       const exportRes = await fetch(
         `/api/database-logs/${vehicleId}/export?${exportParams}`,
         { headers, signal: abort.signal }
@@ -255,7 +370,6 @@ export default function DatabaseLogs() {
       const knownTotal = parseInt(exportRes.headers.get("X-Total-Rows") ?? "0", 10) || total;
       setExportTotal(knownTotal);
 
-      // Rolling 5-second window for ETA
       const RATE_WINDOW_MS = 5000;
       const rateWindow = [];
       const AVG_BYTES_PER_ROW = 150;
@@ -275,12 +389,10 @@ export default function DatabaseLogs() {
         const estimatedRows = Math.min(Math.floor(receivedBytes / AVG_BYTES_PER_ROW), knownTotal);
         rateWindow.push({ time: now, rows: estimatedRows });
 
-        // Trim old entries
         while (rateWindow.length > 1 && now - rateWindow[0].time > RATE_WINDOW_MS) {
           rateWindow.shift();
         }
 
-        // Compute ETA from rolling window
         let eta = null;
         if (rateWindow.length >= 2) {
           const dt = (rateWindow.at(-1).time - rateWindow[0].time) / 1000;
@@ -294,7 +406,6 @@ export default function DatabaseLogs() {
         setExportProgress(knownTotal > 0 ? Math.min((estimatedRows / knownTotal) * 100, 99) : 0);
       }
 
-      // Download the blob
       const blob = new Blob(chunks, { type: "text/csv" });
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -345,7 +456,6 @@ export default function DatabaseLogs() {
   };
 
   /* ========================= EFFECTS ========================= */
-  // Reset + reload when vehicle or date changes
   useEffect(() => {
     setRows([]);
     setCursor(null);
@@ -353,7 +463,6 @@ export default function DatabaseLogs() {
     setError(null);
   }, [vehicleId, selectedDate]);
 
-  // Trigger initial fetch after reset
   useEffect(() => {
     if (rows.length === 0 && hasMore && !loading) {
       fetchLogs(true);
@@ -361,7 +470,6 @@ export default function DatabaseLogs() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vehicleId, selectedDate]);
 
-  // Infinite scroll via IntersectionObserver
   useEffect(() => {
     if (!hasMore || rows.length === 0) return;
 
@@ -474,14 +582,12 @@ export default function DatabaseLogs() {
             )}
           </div>
 
-          {/* Preparing banner (before we know the total) */}
           {exporting && exportTotal === 0 && (
             <div className="w-full max-w-2xl p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
               <p className="text-blue-300 text-sm">⏳ Calculating row count — this is fast, please wait…</p>
             </div>
           )}
 
-          {/* Progress bar */}
           {exporting && exportTotal > 0 && (
             <div className="w-full max-w-2xl space-y-2">
               <div className="flex justify-between text-sm text-orange-300">
@@ -517,7 +623,7 @@ export default function DatabaseLogs() {
           </div>
         )}
 
-        {/* ---- Column selector ---- */}
+        {/* ---- Column selector (grouped) ---- */}
         <div className="pt-6 border-t border-orange-500/20">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-orange-400 font-semibold">
@@ -539,25 +645,52 @@ export default function DatabaseLogs() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 max-h-80 overflow-y-auto bg-black/30 rounded-lg p-4">
-            {COLUMNS.filter(c => !c.alwaysVisible).map(col => (
-              <label
-                key={col.key}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-xs transition-all border ${
-                  selectedCols.has(col.key)
-                    ? "bg-orange-500/20 border-orange-500/50 text-orange-100"
-                    : "bg-gray-800/40 border-gray-700 text-orange-200"
-                } hover:bg-orange-500/10`}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedCols.has(col.key)}
-                  onChange={() => toggleCol(col.key)}
-                  className="w-4 h-4 accent-orange-500 rounded flex-shrink-0"
-                />
-                <span className="truncate">{col.label}</span>
-              </label>
-            ))}
+          <div className="space-y-4 max-h-96 overflow-y-auto bg-black/30 rounded-lg p-4">
+            {COLUMN_GROUPS.map(group => {
+              const groupCols   = group.keys.map(k => COLUMN_MAP[k]).filter(Boolean);
+              const allSelected = groupCols.every(c => selectedCols.has(c.key));
+              const anySelected = groupCols.some(c => selectedCols.has(c.key));
+
+              return (
+                <div key={group.label}>
+                  {/* Group header with toggle-all checkbox */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={el => { if (el) el.indeterminate = anySelected && !allSelected; }}
+                      onChange={() => toggleGroup(group.keys, !allSelected)}
+                      className="w-4 h-4 accent-orange-500 rounded flex-shrink-0"
+                    />
+                    <span className="text-xs font-semibold text-orange-400 uppercase tracking-wider">
+                      {group.label}
+                    </span>
+                  </div>
+
+                  {/* Column checkboxes */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1.5 pl-6">
+                    {groupCols.map(col => (
+                      <label
+                        key={col.key}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-xs transition-all border ${
+                          selectedCols.has(col.key)
+                            ? "bg-orange-500/20 border-orange-500/50 text-orange-100"
+                            : "bg-gray-800/40 border-gray-700 text-orange-200"
+                        } hover:bg-orange-500/10`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedCols.has(col.key)}
+                          onChange={() => toggleCol(col.key)}
+                          className="w-4 h-4 accent-orange-500 rounded flex-shrink-0"
+                        />
+                        <span className="truncate">{col.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -576,7 +709,6 @@ export default function DatabaseLogs() {
         </div>
 
         <div className="overflow-auto max-h-[700px]">
-          {/* Initial loading */}
           {loading && rows.length === 0 && (
             <div className="p-16 text-center text-orange-400/70 flex flex-col items-center gap-3">
               <SpinnerIcon />
@@ -584,19 +716,16 @@ export default function DatabaseLogs() {
             </div>
           )}
 
-          {/* Empty state */}
           {!loading && rows.length === 0 && !error && (
             <div className="p-16 text-center text-orange-400/70">
               No telemetry data available for {selectedDate}
             </div>
           )}
 
-          {/* Error state (table-level) */}
           {error && rows.length === 0 && (
             <div className="p-12 text-center text-red-400">{error}</div>
           )}
 
-          {/* Table */}
           {rows.length > 0 && (
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-gray-950/95 z-10 border-b-2 border-orange-500/30">
@@ -625,14 +754,12 @@ export default function DatabaseLogs() {
             </table>
           )}
 
-          {/* Infinite scroll sentinel */}
           {hasMore && (
             <div ref={loadMoreRef} className="p-8 text-center text-orange-300 text-sm">
               {loading ? "Loading more records…" : "Scroll down to load more"}
             </div>
           )}
 
-          {/* End of data */}
           {!hasMore && rows.length > 0 && (
             <div className="p-8 text-center text-orange-400/70 border-t border-orange-500/20 text-sm">
               End of data · {rows.length.toLocaleString()} rows loaded
