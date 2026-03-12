@@ -174,9 +174,45 @@ export default function LiveView() {
     </div>
   );
 
-  // ────────────────────────────────────────────────
-  const tempPackStats = live.temp_pack_stats ?? {};
-  const voltagePackStats = live.cell_pack_stats ?? {};
+  // ── EVCC1 helpers ──────────────────────────────────────────
+  // CP (Control Pilot) state: IEC 61851 standard codes
+  const cpStatLabel = (v) => {
+    const map = { 0: "A – Standby", 1: "B – Connected", 2: "C – Charging", 3: "D – Charging (vent)", 4: "E – No power", 5: "F – Error" };
+    return v != null ? (map[v] ?? `State ${v}`) : "–";
+  };
+
+  // Generic flag: 1 = Yes/Active, 0 = No/Idle
+  const flagLabel = (v) =>
+    v === 1 ? "Yes" : v === 0 ? "No" : "–";
+
+  // Generic stat/mode: just the raw number or dash
+  const numLabel = (v) => (v != null ? String(v) : "–");
+
+  // Isolation status
+  const isolLabel = (v) => {
+    const map = { 0: "Invalid", 1: "Valid", 2: "Warning", 3: "Fault" };
+    return v != null ? (map[v] ?? numLabel(v)) : "–";
+  };
+
+  // Transfer type (AC / DC)
+  const transferLabel = (v) => {
+    const map = { 0: "–", 1: "AC", 2: "DC" };
+    return v != null ? (map[v] ?? numLabel(v)) : "–";
+  };
+
+  // Lock state
+  const lockLabel = (v) =>
+    v === 1 ? "Locked" : v === 0 ? "Unlocked" : "–";
+
+  // Power delivery state
+  const pwrDeliveryLabel = (v) => {
+    const map = { 0: "Idle", 1: "Starting", 2: "Active", 3: "Stopping" };
+    return v != null ? (map[v] ?? numLabel(v)) : "–";
+  };
+  // ────────────────────────────────────────────────────────────
+
+  const tempPackStats    = live.temp_pack_stats   ?? {};
+  const voltagePackStats = live.cell_pack_stats   ?? {};
 
   if (loading && !Object.keys(live).length) {
     return <div className="text-center py-12 text-orange-200">Loading live data…</div>;
@@ -413,6 +449,93 @@ export default function LiveView() {
             }
           />
         </Section>
+
+        {/* ── EVCC1 — EV Charging Controller ── */}
+        <div className="md:col-span-2">
+          <Section title="EVCC1 — EV Charging Controller">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+              {/* Column 1 — Status & State */}
+              <div className="space-y-3">
+                <Divider label="Status & State" />
+                <Item name="Power Status"      value={numLabel(live.evcc1_pwr_stat)} />
+                <Item name="Socket Status"     value={numLabel(live.evcc1_socket_stat)} />
+                <Item name="EVSE Status"       value={numLabel(live.evcc1_evse_stat)} />
+                <Item name="CP State"          value={cpStatLabel(live.evcc1_cp_stat)} />
+                <Item name="S2 Switch"         value={flagLabel(live.evcc1_s2_on_stat)} />
+                <Item name="PD Status"         value={numLabel(live.evcc1_pd_stat)} />
+                <Item name="Step Number"       value={numLabel(live.evcc1_step_num)} />
+                <Item name="DC/AC Charge Mode" value={numLabel(live.evcc1_dcac_chg_mode)} />
+
+                <Divider label="Charging Flags" />
+                <Item name="Charge Finished (EVCC)"  value={flagLabel(live.evcc1_chg_finished)} />
+                <Item name="Charge Finished (EVSE)"  value={flagLabel(live.evcc1_evse_chg_finished)} />
+                <Item name="Charge Finished (Joint)" value={flagLabel(live.evcc1_evse_evcc_chg_finished)} />
+                <Item name="EVSE Processing"         value={flagLabel(live.evcc1_evse_processing)} />
+                <Item name="Power Delivery"          value={pwrDeliveryLabel(live.evcc1_evse_pwr_delivery)} />
+              </div>
+
+              {/* Column 2 — EVSE Limits & Measurements */}
+              <div className="space-y-3">
+                <Divider label="EVSE Limits" />
+                <Item name="Max Voltage"  value={<Val v={live.evcc1_evse_max_volt_v}  unit="V"  fixed={1} />} />
+                <Item name="Min Voltage"  value={<Val v={live.evcc1_evse_min_volt_v}  unit="V"  fixed={1} />} />
+                <Item name="Max Current"  value={<Val v={live.evcc1_evse_max_curr_a}  unit="A"  fixed={1} />} />
+                <Item name="Min Current"  value={<Val v={live.evcc1_evse_min_curr_a}  unit="A"  fixed={1} />} />
+                <Item name="Max Power"    value={<Val v={live.evcc1_evse_max_pwr_w != null ? live.evcc1_evse_max_pwr_w / 1000 : null} unit="kW" fixed={2} />} />
+                <Item name="Max Delay"    value={<Val v={live.evcc1_evse_max_delay_s} unit="s"  fixed={0} />} />
+
+                <Divider label="EVSE Output" />
+                <Item name="Output Voltage" value={<Val v={live.evcc1_evse_out_volt_v} unit="V" fixed={1} />} />
+                <Item name="Output Current" value={<Val v={live.evcc1_evse_out_curr_a} unit="A" fixed={1} />} />
+                <Item
+                  name="Output Power"
+                  value={
+                    live.evcc1_evse_out_volt_v != null && live.evcc1_evse_out_curr_a != null
+                      ? <Val v={(live.evcc1_evse_out_volt_v * live.evcc1_evse_out_curr_a) / 1000} unit="kW" />
+                      : "–"
+                  }
+                />
+                <Item name="AC Max Current" value={<Val v={live.evcc1_ac_max_current_value_a} unit="A" fixed={1} />} />
+                <Item name="Duty Value"     value={<Val v={live.evcc1_duty_value} unit="%" fixed={1} />} />
+                <Item name="AAG Value"      value={<Val v={live.evcc1_aag_value} fixed={1} />} />
+              </div>
+
+              {/* Column 3 — Isolation, Lock & Errors */}
+              <div className="space-y-3">
+                <Divider label="Isolation" />
+                <Item name="Isolation Status"      value={isolLabel(live.evcc1_evse_isol_stat)} />
+                <Item name="Transfer Type"         value={transferLabel(live.evcc1_evse_transfer_type)} />
+                <Item name="EVSE Notification"     value={numLabel(live.evcc1_evse_notification)} />
+
+                <Divider label="Lock" />
+                <Item name="Lock Command"  value={lockLabel(live.evcc1_lock_stat)} />
+                <Item name="Lock Status"   value={lockLabel(live.evcc1_lock_status)} />
+                <Item
+                  name="Lock Alarm"
+                  value={
+                    <span className={live.evcc1_lock_alarm === 1 ? "text-red-400 font-semibold" : ""}>
+                      {live.evcc1_lock_alarm === 1 ? "ACTIVE" : live.evcc1_lock_alarm === 0 ? "OK" : "–"}
+                    </span>
+                  }
+                />
+
+                <Divider label="Errors" />
+                <Item
+                  name="Error Code"
+                  value={
+                    live.evcc1_error_code != null
+                      ? <span className={live.evcc1_error_code !== 0 ? "text-red-400 font-semibold" : "text-emerald-400"}>
+                          {live.evcc1_error_code !== 0 ? `0x${live.evcc1_error_code.toString(16).toUpperCase().padStart(4, "0")}` : "None"}
+                        </span>
+                      : "–"
+                  }
+                />
+              </div>
+
+            </div>
+          </Section>
+        </div>
 
         {/* ── Alarms ── */}
         <div className="md:col-span-2">

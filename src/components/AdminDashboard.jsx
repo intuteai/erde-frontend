@@ -13,78 +13,76 @@ import axios from "axios";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 const PAGE_SIZE = 10;
 
-// Axios instance
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000,
-  headers: {
-    "Content-Type": "application/json",
-  },
+  timeout: 30000,   // 30s — batch analytics can be slow on large date ranges
+  headers: { "Content-Type": "application/json" },
 });
 
 const columns = [
-  { key: "index", label: "S.No", sortable: false },
-  { key: "vehicle_type", label: "Vehicle Type", sortable: true },
-  { key: "capacity", label: "Capacity (T)", sortable: false },
-  { key: "vehicle_no", label: "Vehicle No", sortable: true },
-  { key: "customer", label: "Customer", sortable: true },
-  { key: "total_hours", label: "Total Hours", sortable: true },
-  { key: "total_kwh", label: "Total kWh", sortable: true },
-  { key: "avg_kwh", label: "Avg kWh/Hr", sortable: true },
-  { key: "status", label: "Status", sortable: true },
-  { key: "track", label: "Live Track", sortable: false },
+  { key: "index",        label: "S.No",        sortable: false },
+  { key: "vehicle_type", label: "Vehicle Type", sortable: true  },
+  { key: "capacity",     label: "Capacity (T)", sortable: false },
+  { key: "vehicle_no",   label: "Vehicle No",   sortable: true  },
+  { key: "customer",     label: "Customer",     sortable: true  },
+  { key: "total_hours",  label: "Total Hours",  sortable: true  },
+  { key: "total_kwh",    label: "Total kWh",    sortable: true  },
+  { key: "avg_kwh",      label: "Avg kWh/Hr",   sortable: true  },
+  { key: "status",       label: "Status",       sortable: true  },
+  { key: "track",        label: "Live Track",   sortable: false },
 ];
 
-/* Status Pill – memoized */
+/* ── Status Pill ─────────────────────────────────────────── */
 const StatusPill = React.memo(({ status }) => {
   const styles = {
-    online: "bg-green-500/20 text-green-300 border-green-500/40",
-    idle: "bg-yellow-500/20 text-yellow-300 border-yellow-500/40",
-    offline: "bg-red-500/20 text-red-300 border-red-500/40",
+    online:  "bg-green-500/20  text-green-300  border-green-500/40",
+    idle:    "bg-yellow-500/20 text-yellow-300 border-yellow-500/40",
+    offline: "bg-red-500/20    text-red-300    border-red-500/40",
   };
 
-  const label = status?.charAt(0).toUpperCase() + status?.slice(1) || "Offline";
+  const dotColor = {
+    online:  "bg-green-400",
+    idle:    "bg-yellow-400",
+    offline: "bg-red-400",
+  };
+
+  const label = status
+    ? status.charAt(0).toUpperCase() + status.slice(1)
+    : "Offline";
 
   return (
     <span
-      className={`px-3 py-1.5 text-xs font-medium rounded-full border ${styles[status] || styles.offline} flex items-center gap-1.5`}
+      className={`px-3 py-1.5 text-xs font-medium rounded-full border flex items-center gap-1.5 w-fit
+        ${styles[status] || styles.offline}`}
     >
-      <span
-        className={`w-2 h-2 rounded-full ${
-          styles[status]?.includes("green")
-            ? "bg-green-400"
-            : styles[status]?.includes("yellow")
-            ? "bg-yellow-400"
-            : "bg-red-400"
-        } animate-pulse`}
-      />
+      <span className={`w-2 h-2 rounded-full animate-pulse ${dotColor[status] || dotColor.offline}`} />
       {label}
     </span>
   );
 });
 
+/* ── Main Component ──────────────────────────────────────── */
 export default function AdminDashboard() {
   const navigate = useNavigate();
 
-  const user = useMemo(() => JSON.parse(localStorage.getItem("user") || "{}"), []);
+  const user  = useMemo(() => JSON.parse(localStorage.getItem("user") || "{}"), []);
   const token = user?.token;
 
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [rows,       setRows]       = useState([]);
+  const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
+  const [error,      setError]      = useState("");
 
   const [searchInput, setSearchInput] = useState("");
-  const [query, setQuery] = useState("");
-  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
-  const [page, setPage] = useState(1);
+  const [query,       setQuery]       = useState("");
+  const [sortConfig,  setSortConfig]  = useState({ key: null, direction: "asc" });
+  const [page,        setPage]        = useState(1);
 
-  // Analytics filter state
   const [analyticsMode, setAnalyticsMode] = useState("all"); // "all" | "today" | "custom"
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate,      setFromDate]      = useState("");
+  const [toDate,        setToDate]        = useState("");
 
-  // ─── Fetch base list + optional analytics ─────────────────
+  /* ── Fetch ───────────────────────────────────────────────── */
   const fetchData = useCallback(async () => {
     if (!token) return;
 
@@ -92,50 +90,64 @@ export default function AdminDashboard() {
     setLoading(true);
 
     try {
-      // 1. Always get base vehicle list (summary)
-      const res = await apiClient.get("/api/vehicle-master/admin-summary", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const authHeader = { Authorization: `Bearer ${token}` };
 
-      let baseRows = res.data.map((row) => ({
+      // Step 1: always fetch base summary (status, vehicle info, all-time totals)
+      const summaryRes = await apiClient.get(
+        "/api/vehicle-master/admin-summary",
+        { headers: authHeader }
+      );
+
+      let baseRows = summaryRes.data.map((row) => ({
         vehicle_master_id: row.vehicle_master_id,
-        vehicle_type: row.vehicle_type?.trim() || "—",
-        capacity: row.capacity ?? "—",
-        vehicle_no: row.vehicle_no || "—",
-        customer: row.customer || "—",
-        total_hours: row.total_hours ?? "—",
-        total_kwh: row.total_kwh ?? "—",
-        avg_kwh: row.avg_kwh ?? "—",
-        status: row.status || "offline",
-        last_seen: row.last_seen,
+        vehicle_type:      row.vehicle_type?.trim() || "—",
+        capacity:          row.capacity ?? "—",
+        vehicle_no:        row.vehicle_no  || "—",
+        customer:          row.customer    || "—",
+        total_hours:       row.total_hours ?? "—",
+        total_kwh:         row.total_kwh   ?? "—",
+        avg_kwh:           row.avg_kwh     ?? "—",
+        status:            row.status      || "offline",
+        last_seen:         row.last_seen,
       }));
 
-      // 2. Skip analytics if custom mode and dates are incomplete
+      // Step 2: if custom mode but dates incomplete, show base data and stop
       if (analyticsMode === "custom" && (!fromDate || !toDate)) {
         setRows(baseRows);
         setLoading(false);
         return;
       }
 
-      // 3. Fetch analytics only when needed
+      // Step 3: for today/custom — ONE batch request replaces N per-vehicle requests
       if (analyticsMode !== "all") {
-        const analyticsMap = await fetchAnalyticsForVehicles(baseRows);
-        baseRows = baseRows.map((row) => {
-          const analytics = analyticsMap.get(row.vehicle_master_id);
-          if (!analytics) return row;
+        const params =
+          analyticsMode === "today"
+            ? "mode=today"
+            : `from=${fromDate}&to=${toDate}`;
 
+        const batchRes = await apiClient.get(
+          `/api/vehicles/analytics/batch?${params}`,
+          { headers: authHeader }
+        );
+
+        // batchRes.data is { [vehicle_master_id]: { running_hours, kwh_consumed, avg_kwh } }
+        const analyticsMap = batchRes.data;
+
+        baseRows = baseRows.map((row) => {
+          const a = analyticsMap[row.vehicle_master_id];
+          if (!a) return row;
           return {
             ...row,
-            total_hours: analytics.running_hours ?? "—",
-            total_kwh: analytics.kwh_consumed ?? "—",
-            avg_kwh: analytics.avg_kwh ?? "—",
+            total_hours: a.running_hours ?? "—",
+            total_kwh:   a.kwh_consumed  ?? "—",
+            avg_kwh:     a.avg_kwh       ?? "—",
           };
         });
       }
 
       setRows(baseRows);
     } catch (err) {
-      console.error("Admin summary / analytics fetch failed:", err);
+      console.error("Admin dashboard fetch failed:", err);
       setError("Failed to load fleet data. Please try again.");
       setRows([]);
     } finally {
@@ -143,42 +155,7 @@ export default function AdminDashboard() {
     }
   }, [token, analyticsMode, fromDate, toDate]);
 
-  // ─── Helper: Fetch analytics for multiple vehicles ────────
-  const fetchAnalyticsForVehicles = async (vehicles) => {
-    // IMPORTANT NOTE:
-    // Currently makes one request per vehicle → scales poorly with large fleets (50+ vehicles)
-    // Future improvement options:
-    // 1. Create batch endpoint on backend: /api/vehicles/analytics/batch?ids=1,2,3...
-    // 2. Use Promise.allSettled + limit concurrency (p-limit / p-queue)
-    const requests = vehicles.map((v) => {
-      let url = `/api/vehicles/${v.vehicle_master_id}/analytics`;
-
-      if (analyticsMode === "today") {
-        url += "?mode=today";
-      } else if (analyticsMode === "custom" && fromDate && toDate) {
-        url += `?from=${fromDate}&to=${toDate}`;
-      } else {
-        return Promise.resolve(null);
-      }
-
-      return apiClient
-        .get(url, { headers: { Authorization: `Bearer ${token}` } })
-        .then((res) => ({
-          id: v.vehicle_master_id,
-          ...res.data,
-        }))
-        .catch(() => null);
-    });
-
-    const results = await Promise.all(requests);
-
-    return results.reduce((map, r) => {
-      if (r) map.set(r.id, r);
-      return map;
-    }, new Map());
-  };
-
-  // Single effect — covers initial load + filter changes
+  /* ── Effects ─────────────────────────────────────────────── */
   useEffect(() => {
     if (!token) {
       setError("Authentication required. Redirecting to login...");
@@ -188,38 +165,31 @@ export default function AdminDashboard() {
     fetchData();
   }, [token, analyticsMode, fromDate, toDate, navigate, fetchData]);
 
-  // ─── Debounced search ─────────────────────────────────────
+  // Debounced search
   useEffect(() => {
     const timer = setTimeout(() => {
       setQuery(searchInput.trim().toLowerCase());
       setPage(1);
     }, 350);
-
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // ─── Filtering ────────────────────────────────────────────
+  /* ── Derived data ────────────────────────────────────────── */
   const filteredRows = useMemo(() => {
     if (!query) return rows;
-
     return rows.filter((row) =>
       Object.values(row).some(
-        (val) =>
-          typeof val === "string" &&
-          val?.toLowerCase?.().includes(query)
+        (val) => typeof val === "string" && val.toLowerCase().includes(query)
       )
     );
   }, [rows, query]);
 
-  // ─── Sorting ──────────────────────────────────────────────
   const sortedRows = useMemo(() => {
     if (!sortConfig.key) return filteredRows;
 
-    const data = [...filteredRows];
-
-    data.sort((a, b) => {
-      let valA = a[sortConfig.key];
-      let valB = b[sortConfig.key];
+    return [...filteredRows].sort((a, b) => {
+      const valA = a[sortConfig.key];
+      const valB = b[sortConfig.key];
 
       if (valA == null || valA === "—") return 1;
       if (valB == null || valB === "—") return -1;
@@ -235,17 +205,12 @@ export default function AdminDashboard() {
         ? String(valA).localeCompare(String(valB), undefined, { numeric: true })
         : String(valB).localeCompare(String(valA), undefined, { numeric: true });
     });
-
-    return data;
   }, [filteredRows, sortConfig]);
 
-  // ─── Pagination ───────────────────────────────────────────
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
 
   useEffect(() => {
-    if (page > totalPages && totalPages > 0) {
-      setPage(totalPages);
-    }
+    if (page > totalPages && totalPages > 0) setPage(totalPages);
   }, [page, totalPages]);
 
   const paginatedRows = useMemo(() => {
@@ -253,15 +218,14 @@ export default function AdminDashboard() {
     return sortedRows.slice(start, start + PAGE_SIZE);
   }, [sortedRows, page]);
 
+  // Stable serial numbers based on original (unsorted) order
   const idToRank = useMemo(() => {
     const map = new Map();
-    rows.forEach((row, idx) => {
-      map.set(row.vehicle_master_id, idx + 1);
-    });
+    rows.forEach((row, idx) => map.set(row.vehicle_master_id, idx + 1));
     return map;
   }, [rows]);
 
-  // ─── Handlers ─────────────────────────────────────────────
+  /* ── Handlers ────────────────────────────────────────────── */
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchData().finally(() => setRefreshing(false));
@@ -269,7 +233,6 @@ export default function AdminDashboard() {
 
   const onSort = useCallback((key) => {
     if (!columns.find((c) => c.key === key)?.sortable) return;
-
     setSortConfig((prev) => ({
       key,
       direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
@@ -281,10 +244,10 @@ export default function AdminDashboard() {
       localStorage.setItem(
         "selectedVehicle",
         JSON.stringify({
-          id: row.vehicle_master_id,
-          vehicleNo: row.vehicle_no,
+          id:          row.vehicle_master_id,
+          vehicleNo:   row.vehicle_no,
           vehicleType: row.vehicle_type,
-          customer: row.customer,
+          customer:    row.customer,
         })
       );
       navigate(`/vehicle/${row.vehicle_master_id}`);
@@ -300,10 +263,11 @@ export default function AdminDashboard() {
     [navigate]
   );
 
-  // ─── Render ───────────────────────────────────────────────
+  /* ── Render ──────────────────────────────────────────────── */
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-950 to-black text-white px-6 py-12">
       <div className="max-w-7xl mx-auto">
+
         {/* Header */}
         <div className="text-center mb-10">
           <h1 className="text-5xl font-extrabold bg-gradient-to-r from-orange-400 via-red-500 to-pink-500 bg-clip-text text-transparent">
@@ -316,7 +280,8 @@ export default function AdminDashboard() {
 
         {/* Controls */}
         <div className="flex flex-col gap-6 mb-8">
-          {/* Search Bar */}
+
+          {/* Search */}
           <div className="relative w-full">
             <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-orange-400/70" />
             <input
@@ -330,48 +295,32 @@ export default function AdminDashboard() {
 
           {/* Filter Row */}
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            {/* Analytics Mode Buttons */}
+
+            {/* Mode Buttons */}
             <div className="flex items-center gap-3 bg-gray-800/40 p-1.5 rounded-xl border border-orange-500/20 w-fit">
-              <button
-                onClick={() => {
-                  setAnalyticsMode("all");
-                  setFromDate("");
-                  setToDate("");
-                }}
-                className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  analyticsMode === "all"
-                    ? "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg shadow-orange-500/30"
-                    : "text-orange-300 hover:text-orange-200 hover:bg-gray-700/50"
-                }`}
-              >
-                All Time
-              </button>
-
-              <button
-                onClick={() => {
-                  setAnalyticsMode("today");
-                  setFromDate("");
-                  setToDate("");
-                }}
-                className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  analyticsMode === "today"
-                    ? "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg shadow-orange-500/30"
-                    : "text-orange-300 hover:text-orange-200 hover:bg-gray-700/50"
-                }`}
-              >
-                Today
-              </button>
-
-              <button
-                onClick={() => setAnalyticsMode("custom")}
-                className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  analyticsMode === "custom"
-                    ? "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg shadow-orange-500/30"
-                    : "text-orange-300 hover:text-orange-200 hover:bg-gray-700/50"
-                }`}
-              >
-                Date Range
-              </button>
+              {[
+                { value: "all",    label: "All Time"   },
+                { value: "today",  label: "Today"      },
+                { value: "custom", label: "Date Range" },
+              ].map(({ value, label }) => (
+                <button
+                  key={value}
+                  onClick={() => {
+                    setAnalyticsMode(value);
+                    if (value !== "custom") {
+                      setFromDate("");
+                      setToDate("");
+                    }
+                  }}
+                  className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    analyticsMode === value
+                      ? "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg shadow-orange-500/30"
+                      : "text-orange-300 hover:text-orange-200 hover:bg-gray-700/50"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             {/* Date Range Picker */}
@@ -387,7 +336,7 @@ export default function AdminDashboard() {
                   />
                 </div>
                 <div className="flex items-center mt-5">
-                  <div className="w-8 h-px bg-orange-500/40"></div>
+                  <div className="w-8 h-px bg-orange-500/40" />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-xs text-orange-300/70 font-medium px-1">To</label>
@@ -401,22 +350,22 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* Refresh Button */}
+            {/* Refresh */}
             <button
               onClick={onRefresh}
               disabled={refreshing || loading}
               className="flex items-center justify-center gap-3 px-6 py-3 rounded-xl bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 disabled:opacity-70 transition font-medium shadow-lg shadow-orange-500/20 md:ml-auto"
             >
-              {refreshing ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <RefreshCcw className="w-5 h-5" />
-              )}
+              {refreshing
+                ? <Loader2 className="w-5 h-5 animate-spin" />
+                : <RefreshCcw className="w-5 h-5" />
+              }
               Refresh
             </button>
           </div>
         </div>
 
+        {/* Error */}
         {error && (
           <div className="mb-6 p-4 bg-red-900/30 border border-red-500/50 rounded-2xl flex items-center gap-3">
             <AlertCircle className="w-6 h-6 text-red-400 flex-shrink-0" />
@@ -424,18 +373,21 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* Data range label */}
         <p className="text-sm text-orange-300/70 mb-4">
           Showing data for:{" "}
-          {analyticsMode === "all"
-            ? "All Time"
-            : analyticsMode === "today"
-            ? "Today"
-            : fromDate && toDate
-            ? `${fromDate} → ${toDate}`
-            : "Select date range"}
+          <span className="text-orange-300 font-medium">
+            {analyticsMode === "all"
+              ? "All Time"
+              : analyticsMode === "today"
+              ? "Today"
+              : fromDate && toDate
+              ? `${fromDate} → ${toDate}`
+              : "Select date range"}
+          </span>
         </p>
 
-        {/* Table + rest remains the same */}
+        {/* Table */}
         <div className="rounded-2xl overflow-hidden border border-orange-500/20 bg-gray-800/30 backdrop-blur">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -448,19 +400,17 @@ export default function AdminDashboard() {
                     >
                       <button
                         onClick={() => onSort(col.key)}
+                        disabled={!col.sortable}
                         className={`flex items-center gap-2 hover:text-orange-300 transition ${
                           col.sortable ? "cursor-pointer" : "cursor-default"
                         }`}
-                        disabled={!col.sortable}
                       >
                         {col.label}
                         {col.sortable && (
                           <ArrowUpDown
                             className={`w-4 h-4 transition-transform ${
                               sortConfig.key === col.key
-                                ? sortConfig.direction === "asc"
-                                  ? "rotate-0"
-                                  : "rotate-180"
+                                ? sortConfig.direction === "asc" ? "rotate-0" : "rotate-180"
                                 : "opacity-50"
                             }`}
                           />
@@ -470,6 +420,7 @@ export default function AdminDashboard() {
                   ))}
                 </tr>
               </thead>
+
               <tbody className="divide-y divide-orange-500/10">
                 {loading ? (
                   <tr>
@@ -480,7 +431,10 @@ export default function AdminDashboard() {
                   </tr>
                 ) : paginatedRows.length === 0 ? (
                   <tr>
-                    <td colSpan={columns.length} className="py-16 text-center text-orange-300/70">
+                    <td
+                      colSpan={columns.length}
+                      className="py-16 text-center text-orange-300/70"
+                    >
                       No vehicles found matching your search.
                     </td>
                   </tr>
@@ -494,10 +448,8 @@ export default function AdminDashboard() {
                       <td className="px-6 py-5 text-sm font-medium text-orange-300/90">
                         {idToRank.get(row.vehicle_master_id) ?? "—"}
                       </td>
-                      <td className="px-6 py-5">
-                        <span className="font-medium text-orange-100">
-                          {row.vehicle_type}
-                        </span>
+                      <td className="px-6 py-5 font-medium text-orange-100">
+                        {row.vehicle_type}
                       </td>
                       <td className="px-6 py-5 text-orange-200">{row.capacity}</td>
                       <td className="px-6 py-5 font-semibold">{row.vehicle_no}</td>
@@ -535,7 +487,8 @@ export default function AdminDashboard() {
             <div className="flex items-center justify-between px-6 py-4 bg-black/30 border-t border-orange-500/20">
               <p className="text-sm text-orange-300/70">
                 Showing {(page - 1) * PAGE_SIZE + 1}–
-                {Math.min(page * PAGE_SIZE, sortedRows.length)} of {sortedRows.length} vehicles
+                {Math.min(page * PAGE_SIZE, sortedRows.length)} of{" "}
+                {sortedRows.length} vehicles
               </p>
               <div className="flex gap-2">
                 <button
