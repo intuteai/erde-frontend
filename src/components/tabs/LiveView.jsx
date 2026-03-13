@@ -325,7 +325,10 @@ export default function LiveView() {
             name="Radiator Temperature"
             value={<Val v={live.radiator_temp_c} unit="°C" fixed={1} />}
           />
-          <Item name="Hydraulic Oil Temperature" value="–" />
+          <Item
+            name="Hydraulic Oil Temperature"
+            value={<Val v={live.hydraulic_oil_temp_c} unit="°C" fixed={1} />}
+          />
           <Item name="Hydraulic Pump RPM" value="–" />
         </Section>
 
