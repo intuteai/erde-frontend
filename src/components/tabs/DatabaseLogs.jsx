@@ -11,7 +11,7 @@ const COLUMNS = [
   { key: "battery_status",                 label: "Battery Status" },
   { key: "stack_voltage_v",                label: "Stack Voltage (V)" },
   { key: "battery_current_a",              label: "Battery Current (A)" },
-  { key: "output_power_kw",                label: "Output Power (kW)" },
+  { key: "output_power_kw",                label: "Battery Power (kW)" },
   { key: "charger_current_demand_a",       label: "Charger Current Demand (A)" },
   { key: "charger_voltage_demand_v",       label: "Charger Voltage Demand (V)" },
   { key: "max_voltage_v",                  label: "Max Cell Voltage (V)" },

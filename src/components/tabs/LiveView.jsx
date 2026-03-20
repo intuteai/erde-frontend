@@ -175,36 +175,29 @@ export default function LiveView() {
   );
 
   // ── EVCC1 helpers ──────────────────────────────────────────
-  // CP (Control Pilot) state: IEC 61851 standard codes
   const cpStatLabel = (v) => {
     const map = { 0: "A – Standby", 1: "B – Connected", 2: "C – Charging", 3: "D – Charging (vent)", 4: "E – No power", 5: "F – Error" };
     return v != null ? (map[v] ?? `State ${v}`) : "–";
   };
 
-  // Generic flag: 1 = Yes/Active, 0 = No/Idle
   const flagLabel = (v) =>
     v === 1 ? "Yes" : v === 0 ? "No" : "–";
 
-  // Generic stat/mode: just the raw number or dash
   const numLabel = (v) => (v != null ? String(v) : "–");
 
-  // Isolation status
   const isolLabel = (v) => {
     const map = { 0: "Invalid", 1: "Valid", 2: "Warning", 3: "Fault" };
     return v != null ? (map[v] ?? numLabel(v)) : "–";
   };
 
-  // Transfer type (AC / DC)
   const transferLabel = (v) => {
     const map = { 0: "–", 1: "AC", 2: "DC" };
     return v != null ? (map[v] ?? numLabel(v)) : "–";
   };
 
-  // Lock state
   const lockLabel = (v) =>
     v === 1 ? "Locked" : v === 0 ? "Unlocked" : "–";
 
-  // Power delivery state
   const pwrDeliveryLabel = (v) => {
     const map = { 0: "Idle", 1: "Starting", 2: "Active", 3: "Stopping" };
     return v != null ? (map[v] ?? numLabel(v)) : "–";
@@ -263,7 +256,7 @@ export default function LiveView() {
           <Item name="Battery Status" value={live.battery_status ?? "–"} />
           <Item name="Stack Voltage" value={<Val v={live.stack_voltage_v} unit="V" />} />
           <Item name="DC Output Current" value={<Val v={live.dc_current_a} unit="A" />} />
-          <Item name="Output Power" value={<Val v={live.output_power_kw} unit="kW" />} />
+          <Item name="Battery Power" value={<Val v={live.output_power_kw} unit="kW" />} />
           <Item name="Charging Current" value={<Val v={live.charging_current_a} unit="A" />} />
           <Item
             name="Temperature Sensors"
@@ -370,10 +363,19 @@ export default function LiveView() {
 
         {/* ── BTMS ── */}
         <Section title="BTMS (Thermal Management)">
-          <Item name="Command Mode" value={live.btms_command_mode ?? "–"} />
+          <Item
+            name="Command Mode"
+            value={
+              live.btms_command_mode === 0 ? "Shutdown Mode" :
+              live.btms_command_mode === 1 ? "Cooling Mode" : "–"
+            }
+          />
           <Item
             name="Status Mode"
-            value={live.btms_status_mode != null ? live.btms_status_mode : "–"}
+            value={
+              live.btms_status_mode === 0 ? "Shutdown Mode" :
+              live.btms_status_mode === 1 ? "Cooling Mode" : "–"
+            }
           />
           <Item
             name="HV Request"
@@ -385,7 +387,13 @@ export default function LiveView() {
                 : "–"
             }
           />
-          <Item name="Charge Status" value={live.btms_charge_status ?? "–"} />
+          <Item
+            name="Charge Status"
+            value={
+              live.btms_charge_status === 0 ? "Discharge" :
+              live.btms_charge_status === 1 ? "Charge" : "–"
+            }
+          />
           <Item
             name="HV Relay State (BMS)"
             value={
@@ -406,7 +414,7 @@ export default function LiveView() {
                 : "–"
             }
           />
-          <Item name="Target Temp" value={<Val v={live.btms_target_temp_c} unit="°C" />} />
+          <Item name="Set Temp" value={<Val v={live.btms_target_temp_c} unit="°C" />} />
           <Item name="Inlet Temp" value={<Val v={live.btms_inlet_temp_c} unit="°C" />} />
           <Item name="Outlet Temp" value={<Val v={live.btms_outlet_temp_c} unit="°C" />} />
           <Item

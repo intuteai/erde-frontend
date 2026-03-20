@@ -1,6 +1,21 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
+/* ========================= TIMESTAMP HELPER ========================= */
+function toIST(dateInput) {
+  const date = new Date(dateInput);
+  const ist = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const yyyy = ist.getFullYear();
+  const mm   = String(ist.getMonth() + 1).padStart(2, '0');
+  const dd   = String(ist.getDate()).padStart(2, '0');
+  let   hh   = ist.getHours();
+  const min  = String(ist.getMinutes()).padStart(2, '0');
+  const ss   = String(ist.getSeconds()).padStart(2, '0');
+  const ampm = hh >= 12 ? 'PM' : 'AM';
+  hh = hh % 12 || 12;
+  return `${dd}-${mm}-${yyyy} ${String(hh).padStart(2, '0')}:${min}:${ss} ${ampm}`;
+}
+
 /* ========================= FAULTS ========================= */
 export default function MotorFaults() {
   const { id } = useParams();
@@ -89,8 +104,10 @@ export default function MotorFaults() {
     const rows = [
       ["Activated At", "Fixed At", "Code", "Description"],
       ...filtered.map((l) => [
-        new Date(l.activated_at).toLocaleString(),
-        l.cleared_at ? new Date(l.cleared_at).toLocaleString() : "",
+        // Tab prefix forces Excel to treat as plain text,
+        // preserving seconds and AM/PM without auto-reformatting
+        `\t${toIST(l.activated_at)}`,
+        l.cleared_at ? `\t${toIST(l.cleared_at)}` : "",
         l.code,
         pretty(l.code),
       ]),
@@ -243,7 +260,7 @@ export default function MotorFaults() {
                   {/* Right: Timestamps */}
                   <div className="text-right space-y-1 min-w-[200px]">
                     <div className="text-sm text-orange-300 font-medium">
-                      {new Date(l.activated_at).toLocaleString()}
+                      {toIST(l.activated_at)}
                     </div>
                     <div className={`text-xs px-3 py-1 rounded-full inline-block ${
                       l.cleared_at
@@ -251,7 +268,7 @@ export default function MotorFaults() {
                         : 'bg-red-500/20 text-red-300 border border-red-500/40'
                     }`}>
                       {l.cleared_at
-                        ? `Fixed: ${new Date(l.cleared_at).toLocaleString()}`
+                        ? `Fixed: ${toIST(l.cleared_at)}`
                         : "Active"}
                     </div>
                   </div>
