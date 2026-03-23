@@ -588,11 +588,6 @@ export default function LiveView() {
                   </div>
                 ))}
               </div>
-              <div className="flex flex-wrap gap-2 justify-center text-xs">
-                <div className="px-3 py-1.5 rounded border border-green-500 bg-green-500/10 text-green-400">≤45°C Optimal</div>
-                <div className="px-3 py-1.5 rounded border border-yellow-400 bg-yellow-400/10 text-yellow-400">45–55°C Elevated</div>
-                <div className="px-3 py-1.5 rounded border border-red-500 bg-red-500/10 text-red-400">≥55°C Critical</div>
-              </div>
             </div>
             <div className="overflow-y-auto max-h-[58vh] p-4">
               {(live.temp_modules ?? []).map((moduleValues, i) => {
@@ -702,37 +697,31 @@ export default function LiveView() {
 
             {/* Pack summary */}
             <div className="p-4 bg-gray-800/50 border-b border-purple-500/20">
-              <div className="flex flex-wrap gap-3 justify-center mb-3">
+              <div className="flex flex-wrap gap-3 justify-center">
                 <div className="px-4 py-2 rounded-lg border-2 border-red-500 bg-gray-800/80"><div className="text-xs text-gray-400">Max</div><div className="text-lg font-bold text-red-400">{fmt3(stringVoltPack.max_v)}V</div></div>
                 <div className="px-4 py-2 rounded-lg border-2 border-yellow-400 bg-gray-800/80"><div className="text-xs text-gray-400">Avg</div><div className="text-lg font-bold text-yellow-400">{fmt3(stringVoltPack.avg_v)}V</div></div>
                 <div className="px-4 py-2 rounded-lg border-2 border-green-500 bg-gray-800/80"><div className="text-xs text-gray-400">Min</div><div className="text-lg font-bold text-green-400">{fmt3(stringVoltPack.min_v)}V</div></div>
-                <div className="px-4 py-2 rounded-lg border-2 border-red-500 bg-gray-800/80"><div className="text-xs text-gray-400">Outliers</div><div className="text-lg font-bold text-red-400">±0.10V: {stringVoltPack.outliers ?? 0}</div></div>
-              </div>
-              <div className="flex flex-wrap gap-2 justify-center text-xs">
-                <div className="px-3 py-1.5 rounded border border-red-500 bg-red-500/10 text-red-400">≥ +0.10V Critical High</div>
-                <div className="px-3 py-1.5 rounded border border-amber-500 bg-amber-500/10 text-amber-400">+0.05 to +0.10V High</div>
-                <div className="px-3 py-1.5 rounded border border-green-500 bg-green-500/10 text-green-400">-0.05 to -0.10V Low</div>
-                <div className="px-3 py-1.5 rounded border border-blue-500 bg-blue-500/10 text-blue-400">≤ -0.10V Critical Low</div>
               </div>
             </div>
 
-            {/* Per-string rows */}
-            <div className="overflow-y-auto max-h-[55vh] p-4 space-y-2">
+            {/* Per-string rows — bar width auto-scales relative to min/max range */}
+            <div className="overflow-y-auto max-h-[60vh] p-4 space-y-2">
               {stringVoltageStats.length === 0 && <div className="text-center text-gray-500 py-12">No string voltage data available</div>}
               {stringVoltageStats.map((s) => {
                 const color = stringVoltageColor(s.status);
+                const rangeMin = stringVoltPack.min_v ?? 0;
+                const rangeMax = stringVoltPack.max_v ?? 0;
+                const range = rangeMax - rangeMin || 1;
+                const barPct = s.value_v != null
+                  ? Math.min(100, Math.max(5, ((s.value_v - rangeMin) / range) * 100))
+                  : 0;
                 return (
                   <div key={s.string} className="flex items-center gap-3 bg-gray-800/40 rounded-lg px-4 py-3 border-2" style={{ borderColor: color }}>
                     <div className="text-sm font-bold text-gray-400 w-16 shrink-0">String {s.string}</div>
                     <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
                       <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: s.value_v != null && stringVoltPack.max_v != null
-                            ? `${Math.min(100, (s.value_v / stringVoltPack.max_v) * 100)}%`
-                            : "0%",
-                          backgroundColor: color,
-                        }}
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${barPct}%`, backgroundColor: color }}
                       />
                     </div>
                     <div className="text-sm font-bold w-20 text-right shrink-0" style={{ color }}>
@@ -773,7 +762,7 @@ export default function LiveView() {
 
             {/* Pack summary */}
             <div className="p-4 bg-gray-800/50 border-b border-cyan-500/20">
-              <div className="flex flex-wrap gap-3 justify-center mb-3">
+              <div className="flex flex-wrap gap-3 justify-center">
                 {[["Max", stringTempPack.max_c], ["Avg", stringTempPack.avg_c], ["Min", stringTempPack.min_c]].map(([label, val]) => (
                   <div key={label} className="px-4 py-2 rounded-lg border-2 bg-gray-800/80" style={{ borderColor: tempColor(val) }}>
                     <div className="text-xs text-gray-400">{label}</div>
@@ -781,20 +770,18 @@ export default function LiveView() {
                   </div>
                 ))}
               </div>
-              <div className="flex flex-wrap gap-2 justify-center text-xs">
-                <div className="px-3 py-1.5 rounded border border-green-500 bg-green-500/10 text-green-400">≤45°C Optimal</div>
-                <div className="px-3 py-1.5 rounded border border-yellow-400 bg-yellow-400/10 text-yellow-400">45–55°C Elevated</div>
-                <div className="px-3 py-1.5 rounded border border-red-500 bg-red-500/10 text-red-400">≥55°C Critical</div>
-              </div>
             </div>
 
-            {/* Per-string rows */}
-            <div className="overflow-y-auto max-h-[55vh] p-4 space-y-2">
+            {/* Per-string rows — bar width auto-scales relative to min/max range */}
+            <div className="overflow-y-auto max-h-[60vh] p-4 space-y-2">
               {stringTempStats.length === 0 && <div className="text-center text-gray-500 py-12">No string temperature data available</div>}
               {stringTempStats.map((s) => {
                 const color = tempColor(s.value_c);
-                const pct = s.value_c != null && stringTempPack.max_c != null && stringTempPack.max_c > 0
-                  ? Math.min(100, (s.value_c / Math.max(stringTempPack.max_c, 60)) * 100)
+                const rangeMin = stringTempPack.min_c ?? 0;
+                const rangeMax = stringTempPack.max_c ?? 0;
+                const range = rangeMax - rangeMin || 1;
+                const pct = s.value_c != null
+                  ? Math.min(100, Math.max(5, ((s.value_c - rangeMin) / range) * 100))
                   : 0;
                 return (
                   <div key={s.string} className="flex items-center gap-3 bg-gray-800/40 rounded-lg px-4 py-3 border-2" style={{ borderColor: color }}>
