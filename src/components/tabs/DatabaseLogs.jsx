@@ -20,6 +20,28 @@ const COLUMNS = [
   { key: "max_temp_c",                     label: "Max Battery Temp (°C)" },
   { key: "min_temp_c",                     label: "Min Battery Temp (°C)" },
   { key: "avg_temp_c",                     label: "Avg Battery Temp (°C)" },
+  // NEW — Battery Health & Capacity
+  { key: "soh_percent",                    label: "SOH (%)" },
+  { key: "cycle_count",                    label: "Cycle Count" },
+  { key: "remaining_ah",                   label: "Remaining AH (Ah)" },
+  { key: "charging_ah",                    label: "Charging AH (Ah)" },
+  // NEW — String Voltages
+  { key: "string_voltage_1_v",             label: "String Voltage 1 (V)" },
+  { key: "string_voltage_2_v",             label: "String Voltage 2 (V)" },
+  { key: "string_voltage_3_v",             label: "String Voltage 3 (V)" },
+  { key: "string_voltage_4_v",             label: "String Voltage 4 (V)" },
+  { key: "string_voltage_5_v",             label: "String Voltage 5 (V)" },
+  { key: "string_voltage_6_v",             label: "String Voltage 6 (V)" },
+  { key: "string_voltage_7_v",             label: "String Voltage 7 (V)" },
+  // NEW — String Temperatures
+  { key: "string_temp_1_c",               label: "String Temp 1 (°C)" },
+  { key: "string_temp_2_c",               label: "String Temp 2 (°C)" },
+  { key: "string_temp_3_c",               label: "String Temp 3 (°C)" },
+  { key: "string_temp_4_c",               label: "String Temp 4 (°C)" },
+  { key: "string_temp_5_c",               label: "String Temp 5 (°C)" },
+  { key: "string_temp_6_c",               label: "String Temp 6 (°C)" },
+  { key: "string_temp_7_c",               label: "String Temp 7 (°C)" },
+  { key: "string_temp_8_c",               label: "String Temp 8 (°C)" },
   // Motor / MCU
   { key: "motor_torque_limit",             label: "Motor Torque Limit (Nm)" },
   { key: "motor_torque_value",             label: "Motor Torque Value (Nm)" },
@@ -116,6 +138,28 @@ const COLUMN_GROUPS = [
       "output_power_kw","charger_current_demand_a","charger_voltage_demand_v",
       "max_voltage_v","min_voltage_v","avg_voltage_v",
       "max_temp_c","min_temp_c","avg_temp_c",
+    ],
+  },
+  {
+    label: "Battery Health & Capacity",
+    keys: [
+      "soh_percent","cycle_count","remaining_ah","charging_ah",
+    ],
+  },
+  {
+    label: "String Voltages",
+    keys: [
+      "string_voltage_1_v","string_voltage_2_v","string_voltage_3_v",
+      "string_voltage_4_v","string_voltage_5_v","string_voltage_6_v",
+      "string_voltage_7_v",
+    ],
+  },
+  {
+    label: "String Temperatures",
+    keys: [
+      "string_temp_1_c","string_temp_2_c","string_temp_3_c",
+      "string_temp_4_c","string_temp_5_c","string_temp_6_c",
+      "string_temp_7_c","string_temp_8_c",
     ],
   },
   {
