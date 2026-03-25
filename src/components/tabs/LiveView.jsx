@@ -35,6 +35,15 @@ const fmt1 = (n) => (n == null || !Number.isFinite(n) ? "–" : n.toFixed(1));
 const fmt2 = (n) => (n == null || !Number.isFinite(n) ? "–" : n.toFixed(2));
 const fmt3 = (n) => (n == null || !Number.isFinite(n) ? "–" : n.toFixed(3));
 
+// ─── BTMS Mode label helper ───────────────────────────────────────────────────
+const btmsModeLabel = (v) =>
+  ({
+    0: "Shutdown Mode",
+    1: "Cooling Mode",
+    2: "Heating Mode",
+    3: "Self Circulating Mode",
+  }[v] ?? "–");
+
 export default function LiveView() {
   const { id } = useParams();
   const [live, setLive] = useState({});
@@ -317,8 +326,8 @@ export default function LiveView() {
 
         {/* ── BTMS ─────────────────────────────────────────────────────────── */}
         <Section title="BTMS (Thermal Management)">
-          <Item name="Command Mode"  value={live.btms_command_mode === 0 ? "Shutdown Mode" : live.btms_command_mode === 1 ? "Cooling Mode" : "–"} />
-          <Item name="Status Mode"   value={live.btms_status_mode  === 0 ? "Shutdown Mode" : live.btms_status_mode  === 1 ? "Cooling Mode" : "–"} />
+          <Item name="Command Mode"  value={btmsModeLabel(live.btms_command_mode)} />
+          <Item name="Status Mode"   value={btmsModeLabel(live.btms_status_mode)} />
           <Item name="HV Request"    value={live.btms_hv_request   === 0 ? "ON"  : live.btms_hv_request === 1 ? "OFF" : "–"} />
           <Item name="Charge Status" value={live.btms_charge_status === 0 ? "Discharge" : live.btms_charge_status === 1 ? "Charge" : "–"} />
           <Item name="HV Relay State (BMS)"  value={live.bms_hv_relay_state  === 1 ? "CLOSED" : live.bms_hv_relay_state  === 0 ? "OPEN" : "–"} />
