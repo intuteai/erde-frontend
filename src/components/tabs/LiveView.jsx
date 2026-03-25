@@ -21,16 +21,13 @@ const cellBoxColor = (v, avg) => {
   return "#94a3b8";
 };
 
-// Same deviation logic for string voltages
-const stringVoltageColor = (status) => {
-  switch (status) {
-    case "CRITICAL_HIGH": return "#ef4444";
-    case "HIGH":          return "#f59e0b";
-    case "LOW":           return "#22c55e";
-    case "CRITICAL_LOW":  return "#3b82f6";
-    case "OK":            return "#94a3b8";
-    default:              return "#94a3b8";
-  }
+const stringVoltageColor = (v) => {
+  if (v == null || !Number.isFinite(v)) return "#94a3b8";
+  if (v < 520) return "#3b82f6";
+  if (v < 550) return "#22c55e";
+  if (v > 680) return "#ef4444";
+  if (v > 660) return "#f59e0b";
+  return "#94a3b8";
 };
 
 // ─── Format helpers ───────────────────────────────────────────────────────────
@@ -646,12 +643,6 @@ export default function LiveView() {
                 <div className="px-4 py-2 rounded-lg border-2 border-green-500 bg-gray-800/80"><div className="text-xs text-gray-400">Min</div><div className="text-lg font-bold text-green-400">{fmt3(voltagePackStats.min_v)}V</div></div>
                 <div className="px-4 py-2 rounded-lg border-2 border-red-500 bg-gray-800/80"><div className="text-xs text-gray-400">Outliers</div><div className="text-lg font-bold text-red-400">±0.10V: {voltagePackStats.outliers ?? 0}</div></div>
               </div>
-              <div className="flex flex-wrap gap-2 justify-center text-xs">
-                <div className="px-3 py-1.5 rounded border border-red-500 bg-red-500/10 text-red-400">≥ +0.10V Critical High</div>
-                <div className="px-3 py-1.5 rounded border border-amber-500 bg-amber-500/10 text-amber-400">+0.05 to +0.10V High</div>
-                <div className="px-3 py-1.5 rounded border border-green-500 bg-green-500/10 text-green-400">-0.05 to -0.10V Low</div>
-                <div className="px-3 py-1.5 rounded border border-blue-500 bg-blue-500/10 text-blue-400">≤ -0.10V Critical Low</div>
-              </div>
             </div>
             <div className="overflow-y-auto max-h-[58vh] p-4">
               {(live.cell_modules ?? []).map((moduleValues, i) => {
@@ -667,9 +658,9 @@ export default function LiveView() {
                     </div>
                     <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-1.5">
                       {moduleValues.map((v, j) => (
-                        <div key={j} className="bg-gray-900/60 border-2 rounded-md px-1.5 py-1.5 text-center hover:scale-105 transition-all" style={{ borderColor: cellBoxColor(v, voltagePackStats.avg_v) }}>
+                        <div key={j} className="bg-gray-900/60 border-2 rounded-md px-1.5 py-1.5 text-center hover:scale-105 transition-all" style={{ borderColor: "#94a3b8" }}>
                           <div className="text-[9px] text-gray-500">#{j + 1}</div>
-                          <div className="text-xs font-bold" style={{ color: cellBoxColor(v, voltagePackStats.avg_v) }}>{fmt3(v)}</div>
+                          <div className="text-xs font-bold" style={{ color: "#94a3b8" }}>{fmt3(v)}</div>
                           <div className="text-[8px] text-gray-500">V</div>
                         </div>
                       ))}
@@ -704,16 +695,16 @@ export default function LiveView() {
               </div>
             </div>
 
-            {/* Per-string rows — bar width auto-scales relative to min/max range */}
+            {/* Per-string rows — bar auto-scales to actual min/max range */}
             <div className="overflow-y-auto max-h-[60vh] p-4 space-y-2">
               {stringVoltageStats.length === 0 && <div className="text-center text-gray-500 py-12">No string voltage data available</div>}
               {stringVoltageStats.map((s) => {
-                const color = stringVoltageColor(s.status);
+                const color = stringVoltageColor(s.value_v);
                 const rangeMin = stringVoltPack.min_v ?? 0;
                 const rangeMax = stringVoltPack.max_v ?? 0;
                 const range = rangeMax - rangeMin || 1;
                 const barPct = s.value_v != null
-                  ? Math.min(100, Math.max(5, ((s.value_v - rangeMin) / range) * 100))
+                  ? Math.min(90, Math.max(5, ((s.value_v - rangeMin) / range) * 90))
                   : 0;
                 return (
                   <div key={s.string} className="flex items-center gap-3 bg-gray-800/40 rounded-lg px-4 py-3 border-2" style={{ borderColor: color }}>
@@ -727,19 +718,6 @@ export default function LiveView() {
                     <div className="text-sm font-bold w-20 text-right shrink-0" style={{ color }}>
                       {s.value_v != null ? `${fmt3(s.value_v)}V` : "–"}
                     </div>
-                    <div className="w-6 text-right shrink-0">
-                      {s.delta_v != null && (
-                        <span className="text-[10px]" style={{ color }}>
-                          {s.delta_v >= 0 ? "+" : ""}{s.delta_v.toFixed(3)}
-                        </span>
-                      )}
-                    </div>
-                    {s.status && s.status !== "OK" && (
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded border shrink-0"
-                        style={{ color, borderColor: color, backgroundColor: `${color}18` }}>
-                        {s.status.replace("_", " ")}
-                      </span>
-                    )}
                   </div>
                 );
               })}
@@ -772,7 +750,7 @@ export default function LiveView() {
               </div>
             </div>
 
-            {/* Per-string rows — bar width auto-scales relative to min/max range */}
+            {/* Per-string rows — bar auto-scales to actual min/max range, no status badge */}
             <div className="overflow-y-auto max-h-[60vh] p-4 space-y-2">
               {stringTempStats.length === 0 && <div className="text-center text-gray-500 py-12">No string temperature data available</div>}
               {stringTempStats.map((s) => {
@@ -781,7 +759,7 @@ export default function LiveView() {
                 const rangeMax = stringTempPack.max_c ?? 0;
                 const range = rangeMax - rangeMin || 1;
                 const pct = s.value_c != null
-                  ? Math.min(100, Math.max(5, ((s.value_c - rangeMin) / range) * 100))
+                  ? Math.min(90, Math.max(5, ((s.value_c - rangeMin) / range) * 90))
                   : 0;
                 return (
                   <div key={s.string} className="flex items-center gap-3 bg-gray-800/40 rounded-lg px-4 py-3 border-2" style={{ borderColor: color }}>
@@ -792,15 +770,6 @@ export default function LiveView() {
                     <div className="text-sm font-bold w-16 text-right shrink-0" style={{ color }}>
                       {s.value_c != null ? `${fmt1(s.value_c)}°C` : "–"}
                     </div>
-                    {s.status && (
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border shrink-0 ${
-                        s.status === "CRITICAL" ? "bg-red-600/20 border-red-500/40 text-red-300" :
-                        s.status === "WARN"     ? "bg-yellow-600/20 border-yellow-500/40 text-yellow-300" :
-                        "bg-green-600/20 border-green-500/40 text-green-300"
-                      }`}>
-                        {s.status}
-                      </span>
-                    )}
                   </div>
                 );
               })}
