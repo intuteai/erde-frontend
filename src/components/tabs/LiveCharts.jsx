@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import {
   AreaChart,
@@ -16,12 +16,10 @@ import {
 const LIVE_THRESHOLD_MS  = 15000;
 const WINDOW_MS          = 5 * 60 * 1000;
 const MAX_POINTS         = 150;
-// If last data point is older than this, seed data is "stale session"
-const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+const STALE_THRESHOLD_MS = 10 * 60 * 1000;
 
 /* ─────────────────────────────────────────────────────────────
-   Field extractor — handles both seed rows (raw DB aliases)
-   and SSE rows (formatLiveData output). Tries all known names.
+   Field extractor
 ───────────────────────────────────────────────────────────── */
 function coerceNum(v) {
   if (v == null) return null;
@@ -35,7 +33,7 @@ const extractFields = (raw) => ({
   motor_torque_nm: coerceNum(raw.motor_torque_nm ?? raw.motor_torque_value),
   dc_current_a:    coerceNum(raw.dc_current_a    ?? raw.battery_current_a),
   ac_current_a:    coerceNum(raw.ac_current_a    ?? raw.motor_ac_current_a),
-  ac_voltage_v:    coerceNum(raw.ac_voltage_v    ?? raw.motor_ac_voltage_v),  // ← ADDED
+  ac_voltage_v:    coerceNum(raw.ac_voltage_v    ?? raw.motor_ac_voltage_v),
 });
 
 /* ─────────────────────────────────────────────────────────────
@@ -86,7 +84,6 @@ const CHARTS = [
     fixed: 1,
     span:  "",
   },
-  // ── ADDED: Motor AC Voltage ──────────────────────────────
   {
     key:   "ac_voltage_v",
     label: "Motor AC Voltage",
@@ -98,7 +95,6 @@ const CHARTS = [
     fixed: 1,
     span:  "",
   },
-  // ── span removed from md:col-span-2 → "" so it pairs with voltage above ──
   {
     key:   "ac_current_a",
     label: "Motor AC Current",
@@ -138,6 +134,40 @@ const toLabel = (date) =>
     second: "2-digit",
     hour12: false,
   });
+
+// Format seconds → "2h 15m" or "45m" or "30s"
+const fmtDuration = (seconds) => {
+  if (!seconds || seconds <= 0) return "0m";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+};
+
+// Get today's date in IST as YYYY-MM-DD
+const getTodayIST = () =>
+  new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+// Get yesterday's date in IST as YYYY-MM-DD
+const getYesterdayIST = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+};
+
+// Step a YYYY-MM-DD string by N days
+const stepDate = (dateStr, days) => {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  d.setDate(d.getDate() + days);
+  return d.toLocaleDateString("en-CA", { timeZone: "UTC" });
+};
+
+// Format YYYY-MM-DD → "Apr 14"
+const fmtDateLabel = (dateStr) => {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+};
 
 /* ─────────────────────────────────────────────────────────────
    Custom Tooltip
@@ -205,7 +235,6 @@ function ChartCard({ cfg, data, isLive, isStale }) {
           : "0 4px 20px rgba(0,0,0,0.45)",
       }}
     >
-      {/* Top glow line — only when live */}
       <div
         className="absolute top-0 left-0 right-0 h-px transition-opacity duration-700"
         style={{
@@ -213,8 +242,6 @@ function ChartCard({ cfg, data, isLive, isStale }) {
           opacity:    isLive ? 0.7 : 0,
         }}
       />
-
-      {/* Radial bg wash */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
@@ -223,7 +250,6 @@ function ChartCard({ cfg, data, isLive, isStale }) {
       />
 
       <div className="relative p-5">
-        {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-start gap-3">
             <div className="mt-1 relative flex-shrink-0">
@@ -247,7 +273,6 @@ function ChartCard({ cfg, data, isLive, isStale }) {
             </div>
           </div>
 
-          {/* Current value */}
           <div className="text-right">
             <div
               className="text-3xl font-black tabular-nums leading-none transition-all duration-200"
@@ -262,7 +287,6 @@ function ChartCard({ cfg, data, isLive, isStale }) {
           </div>
         </div>
 
-        {/* Stats */}
         <div className="flex gap-2 mb-4">
           <Stat label="Min" val={fmt(minVal, cfg.fixed)} color={cardColor} />
           <Stat label="Avg" val={fmt(avgVal, cfg.fixed)} color={cardColor} />
@@ -270,7 +294,6 @@ function ChartCard({ cfg, data, isLive, isStale }) {
           <Stat label="Pts" val={data.length}            color={cardColor} />
         </div>
 
-        {/* Chart */}
         <div className="h-36 relative">
           {data.length === 0 ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
@@ -354,7 +377,6 @@ function ChartCard({ cfg, data, isLive, isStale }) {
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex justify-between items-center mt-3 pt-3 border-t border-white/[0.04]">
           <span className="text-[9px] text-gray-700 font-mono tracking-widest uppercase">
             5 min window · 2 s interval
@@ -372,7 +394,504 @@ function ChartCard({ cfg, data, isLive, isStale }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Main
+   Activity Timeline — 24-hour odometer-based activity view
+───────────────────────────────────────────────────────────── */
+
+// BUCKET_COUNT: 96 buckets × 15 minutes = 24 hours
+const BUCKET_COUNT    = 96;
+const BUCKET_MINS     = 15;
+const RUNNING_COLOR   = "#22c55e";   // green-500
+const IDLE_COLOR      = "#f59e0b";   // amber-400
+const OFFLINE_COLOR   = "#1f2937";   // gray-800
+
+// Build a full 96-slot array for the selected date, merging in API buckets.
+// Each slot: { index, timeLabel, state: "running"|"idle"|"offline", runningSeconds, rowCount }
+function buildSlots(dateStr, buckets) {
+  // Build a lookup from bucket start-of-15min → bucket data
+  const lookup = new Map();
+  for (const b of buckets) {
+    const d   = new Date(b.bucket);
+    // Align to nearest 15-min floor in IST
+    const ist = new Date(d.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const h   = ist.getHours();
+    const m   = Math.floor(ist.getMinutes() / 15) * 15;
+    const key = h * 60 + m; // minutes since midnight IST
+    lookup.set(key, b);
+  }
+
+  const slots = [];
+  for (let i = 0; i < BUCKET_COUNT; i++) {
+    const minutesSinceMidnight = i * BUCKET_MINS;
+    const h   = Math.floor(minutesSinceMidnight / 60);
+    const m   = minutesSinceMidnight % 60;
+    const timeLabel = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+
+    const b = lookup.get(minutesSinceMidnight);
+
+    let state          = "offline";
+    let runningSeconds = 0;
+    let rowCount       = 0;
+
+    if (b) {
+      rowCount = b.row_count;
+      const delta = b.hrs_end - b.hrs_start; // seconds
+      if (delta > 0) {
+        state          = "running";
+        runningSeconds = delta;
+      } else {
+        state = "idle";
+      }
+    }
+
+    slots.push({ index: i, timeLabel, state, runningSeconds, rowCount });
+  }
+
+  return slots;
+}
+
+// Derive contiguous sessions from slots
+function buildSessions(slots) {
+  const sessions = [];
+  let current    = null;
+
+  for (const slot of slots) {
+    if (slot.state === "offline") {
+      if (current) { sessions.push(current); current = null; }
+      continue;
+    }
+    if (!current || current.state !== slot.state) {
+      if (current) sessions.push(current);
+      current = {
+        state:         slot.state,
+        startLabel:    slot.timeLabel,
+        endLabel:      slot.timeLabel,
+        endIndex:      slot.index,
+        runningSeconds: slot.runningSeconds,
+        slots:         1,
+      };
+    } else {
+      current.endLabel      = slot.timeLabel;
+      current.endIndex      = slot.index;
+      current.runningSeconds += slot.runningSeconds;
+      current.slots++;
+    }
+  }
+  if (current) sessions.push(current);
+  return sessions;
+}
+
+// Tooltip for hovered bucket
+function BucketTooltip({ slot, visible }) {
+  if (!visible || !slot) return null;
+  const stateLabel = slot.state === "running" ? "Running" : slot.state === "idle" ? "VCU On" : "Offline";
+  const color      = slot.state === "running" ? RUNNING_COLOR : slot.state === "idle" ? IDLE_COLOR : "#6b7280";
+
+  return (
+    <div
+      className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50 pointer-events-none"
+      style={{ minWidth: 120 }}
+    >
+      <div
+        className="rounded-lg px-3 py-2 text-xs shadow-2xl border"
+        style={{
+          background:  "rgba(8,8,18,0.98)",
+          borderColor: color + "50",
+          boxShadow:   `0 0 16px ${color}30`,
+        }}
+      >
+        <div className="font-mono text-gray-400 text-[10px] mb-1">{slot.timeLabel}</div>
+        <div className="font-bold" style={{ color }}>{stateLabel}</div>
+        {slot.state === "running" && (
+          <div className="text-gray-500 text-[10px] mt-0.5">
+            +{fmtDuration(slot.runningSeconds)}
+          </div>
+        )}
+        {slot.rowCount > 0 && (
+          <div className="text-gray-600 text-[10px]">{slot.rowCount} pts</div>
+        )}
+      </div>
+      {/* Arrow */}
+      <div
+        className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0"
+        style={{
+          borderLeft:  "5px solid transparent",
+          borderRight: "5px solid transparent",
+          borderTop:   `5px solid ${color}50`,
+        }}
+      />
+    </div>
+  );
+}
+
+function ActivityTimeline({ vehicleId }) {
+  const todayIST     = getTodayIST();
+  const yesterdayIST = getYesterdayIST();
+
+  const [selectedDate, setSelectedDate] = useState(todayIST);
+  const [data,         setData]         = useState(null);   // null = not loaded yet
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState(null);
+  const [hoveredSlot,  setHoveredSlot]  = useState(null);
+  const [hoveredIdx,   setHoveredIdx]   = useState(null);
+
+  /* ── Fetch activity data for selected date ── */
+  const fetchActivity = useCallback(async (date) => {
+    const token = localStorage.getItem("token");
+    if (!token || !vehicleId) return;
+
+    setLoading(true);
+    setError(null);
+    setData(null);
+
+    try {
+      const res = await fetch(
+        `/api/vehicles/${vehicleId}/activity?date=${date}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setData(json);
+    } catch (err) {
+      console.error("[ActivityTimeline] fetch failed:", err.message);
+      setError("Failed to load activity data");
+    } finally {
+      setLoading(false);
+    }
+  }, [vehicleId]);
+
+  useEffect(() => {
+    fetchActivity(selectedDate);
+  }, [selectedDate, fetchActivity]);
+
+  /* ── Build display data ── */
+  const slots    = useMemo(() => buildSlots(selectedDate, data?.buckets ?? []), [selectedDate, data]);
+  const sessions = useMemo(() => buildSessions(slots), [slots]);
+  const summary  = data?.summary;
+
+  /* ── Date navigation ── */
+  const canGoForward = selectedDate < todayIST;
+
+  const hourLabels = ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "24:00"];
+
+  /* ── Longest idle gap ── */
+  const longestIdleSeconds = useMemo(() => {
+    let max = 0;
+    for (const s of sessions) {
+      if (s.state === "idle") {
+        const secs = s.slots * BUCKET_MINS * 60;
+        if (secs > max) max = secs;
+      }
+    }
+    return max;
+  }, [sessions]);
+
+  return (
+    <div
+      className="rounded-2xl overflow-hidden mt-8"
+      style={{
+        background: "linear-gradient(150deg,rgba(13,13,22,0.99) 0%,rgba(18,16,28,0.99) 100%)",
+        border:     "1px solid rgba(55,65,81,0.5)",
+        boxShadow:  "0 4px 20px rgba(0,0,0,0.45)",
+      }}
+    >
+      {/* Header */}
+      <div className="px-6 pt-5 pb-4 border-b border-white/[0.04]">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-base font-bold text-gray-100 tracking-wide">
+              Daily Activity
+            </h2>
+            <p className="text-[10px] text-gray-600 mt-0.5 font-mono tracking-widest uppercase">
+              Odometer-based · 15-min buckets
+            </p>
+          </div>
+
+          {/* Date selector */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Quick chips */}
+            <button
+              onClick={() => setSelectedDate(todayIST)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                selectedDate === todayIST
+                  ? "bg-orange-500/20 text-orange-300 border border-orange-500/50"
+                  : "text-gray-500 border border-gray-700/50 hover:border-gray-600 hover:text-gray-400"
+              }`}
+            >
+              Today
+            </button>
+            <button
+              onClick={() => setSelectedDate(yesterdayIST)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                selectedDate === yesterdayIST
+                  ? "bg-orange-500/20 text-orange-300 border border-orange-500/50"
+                  : "text-gray-500 border border-gray-700/50 hover:border-gray-600 hover:text-gray-400"
+              }`}
+            >
+              Yesterday
+            </button>
+
+            {/* Prev / Date label / Next */}
+            <div className="flex items-center gap-1 bg-gray-800/40 rounded-lg border border-gray-700/50 px-1">
+              <button
+                onClick={() => setSelectedDate((d) => stepDate(d, -1))}
+                className="px-2 py-1.5 text-gray-500 hover:text-gray-300 transition text-sm"
+                title="Previous day"
+              >
+                ‹
+              </button>
+              <span className="text-xs text-gray-400 font-mono px-1 min-w-[52px] text-center">
+                {fmtDateLabel(selectedDate)}
+              </span>
+              <button
+                onClick={() => setSelectedDate((d) => stepDate(d, 1))}
+                disabled={!canGoForward}
+                className="px-2 py-1.5 text-gray-500 hover:text-gray-300 transition text-sm disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Next day"
+              >
+                ›
+              </button>
+            </div>
+
+            {/* Date picker */}
+            <input
+              type="date"
+              value={selectedDate}
+              max={todayIST}
+              onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+              className="px-2 py-1.5 rounded-lg bg-gray-800/50 border border-gray-700/50 text-gray-400 text-xs focus:outline-none focus:border-orange-500/50 transition"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="px-6 py-5">
+        {/* Summary pills */}
+        {summary && !loading && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            <div
+              className="rounded-xl px-4 py-3"
+              style={{ background: `${RUNNING_COLOR}0d`, border: `1px solid ${RUNNING_COLOR}25` }}
+            >
+              <div className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">Running</div>
+              <div className="text-xl font-black tabular-nums" style={{ color: RUNNING_COLOR }}>
+                {summary.running_hours.toFixed(2)}
+                <span className="text-xs font-normal text-gray-500 ml-1">hrs</span>
+              </div>
+            </div>
+
+            <div
+              className="rounded-xl px-4 py-3"
+              style={{ background: `${IDLE_COLOR}0d`, border: `1px solid ${IDLE_COLOR}25` }}
+            >
+              <div className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">VCU On</div>
+              <div className="text-xl font-black tabular-nums" style={{ color: IDLE_COLOR }}>
+                {summary.idle_hours.toFixed(2)}
+                <span className="text-xs font-normal text-gray-500 ml-1">hrs</span>
+              </div>
+            </div>
+
+            <div
+              className="rounded-xl px-4 py-3"
+              style={{ background: "rgba(167,139,250,0.05)", border: "1px solid rgba(167,139,250,0.15)" }}
+            >
+              <div className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">Sessions</div>
+              <div className="text-xl font-black tabular-nums text-violet-400">
+                {sessions.filter((s) => s.state === "running").length}
+                <span className="text-xs font-normal text-gray-500 ml-1">runs</span>
+              </div>
+            </div>
+
+            <div
+              className="rounded-xl px-4 py-3"
+              style={{ background: "rgba(107,114,128,0.05)", border: "1px solid rgba(107,114,128,0.15)" }}
+            >
+              <div className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">Longest idle</div>
+              <div className="text-xl font-black tabular-nums text-gray-400">
+                {longestIdleSeconds > 0 ? fmtDuration(longestIdleSeconds) : "–"}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Loading state */}
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-16 gap-4">
+            <div className="w-8 h-8 rounded-full border-2 border-orange-500/20 border-t-orange-500 animate-spin" />
+            <span className="text-xs text-gray-600 font-mono tracking-widest">
+              Loading activity…
+            </span>
+          </div>
+        )}
+
+        {/* Error state */}
+        {error && !loading && (
+          <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 mb-4">
+            ⚠ {error}
+          </div>
+        )}
+
+        {/* Timeline strip */}
+        {!loading && !error && (
+          <>
+            {/* Hour labels above the strip */}
+            <div className="relative mb-1">
+              <div className="flex justify-between px-0">
+                {hourLabels.map((label) => (
+                  <span key={label} className="text-[9px] text-gray-700 font-mono">
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* The 96-bucket strip */}
+            <div className="relative">
+              <div className="flex gap-[1px] h-10 rounded-lg overflow-hidden">
+                {slots.map((slot) => {
+                  const color =
+                    slot.state === "running"
+                      ? RUNNING_COLOR
+                      : slot.state === "idle"
+                      ? IDLE_COLOR
+                      : OFFLINE_COLOR;
+
+                  const isHovered = hoveredIdx === slot.index;
+
+                  return (
+                    <div
+                      key={slot.index}
+                      className="relative flex-1 cursor-pointer transition-all duration-75"
+                      style={{
+                        background:  color,
+                        opacity:     slot.state === "offline" ? 1 : isHovered ? 1 : 0.75,
+                        transform:   isHovered ? "scaleY(1.15)" : "scaleY(1)",
+                        transformOrigin: "center",
+                      }}
+                      onMouseEnter={() => { setHoveredSlot(slot); setHoveredIdx(slot.index); }}
+                      onMouseLeave={() => { setHoveredSlot(null); setHoveredIdx(null); }}
+                    >
+                      {/* Tooltip anchored to this bucket */}
+                      {isHovered && (
+                        <BucketTooltip slot={slot} visible={true} />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Hour grid lines */}
+              <div className="absolute inset-0 pointer-events-none flex">
+                {Array.from({ length: 9 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="flex-1 border-l border-black/20"
+                    style={{ borderLeftWidth: i === 0 ? 0 : 1 }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Legend */}
+            <div className="flex items-center gap-5 mt-3">
+              {[
+                { color: RUNNING_COLOR,  label: "Running (odometer moving)" },
+                { color: IDLE_COLOR,     label: "VCU On (odometer not moving)" },
+                { color: "#374151",      label: "Offline" },
+              ].map(({ color, label }) => (
+                <div key={label} className="flex items-center gap-1.5">
+                  <div
+                    className="w-3 h-3 rounded-sm flex-shrink-0"
+                    style={{ background: color }}
+                  />
+                  <span className="text-[10px] text-gray-600">{label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Session breakdown */}
+            {sessions.length > 0 && (
+              <div className="mt-5">
+                <div className="text-[10px] uppercase tracking-widest text-gray-700 mb-3 font-mono">
+                  Session Breakdown
+                </div>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {sessions.map((session, i) => {
+                    const color =
+                      session.state === "running" ? RUNNING_COLOR : IDLE_COLOR;
+                    const durationMins = session.slots * BUCKET_MINS;
+
+                    // End time = endIndex + 1 bucket
+                    const endMins    = (session.endIndex + 1) * BUCKET_MINS;
+                    const endH       = Math.floor(endMins / 60) % 24;
+                    const endM       = endMins % 60;
+                    const endLabel   = `${String(endH).padStart(2,"0")}:${String(endM).padStart(2,"0")}`;
+
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-center gap-3 rounded-lg px-3 py-2"
+                        style={{
+                          background: color + "08",
+                          border:     `1px solid ${color}18`,
+                        }}
+                      >
+                        {/* State dot */}
+                        <div
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ background: color }}
+                        />
+
+                        {/* Time range */}
+                        <span className="text-xs font-mono text-gray-400 flex-shrink-0">
+                          {session.startLabel} → {endLabel}
+                        </span>
+
+                        {/* Duration */}
+                        <span
+                          className="text-xs font-bold tabular-nums"
+                          style={{ color }}
+                        >
+                          {fmtDuration(durationMins * 60)}
+                        </span>
+
+                        {/* State label */}
+                        <span className="text-[10px] text-gray-600 capitalize ml-auto">
+                          {session.state === "running" ? "Running" : "VCU On"}
+                        </span>
+
+                        {session.state === "running" && session.runningSeconds > 0 && (
+                          <span className="text-[10px] text-gray-700 font-mono">
+                            +{fmtDuration(session.runningSeconds)} odometer
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Empty state — no data for this day */}
+            {data && data.buckets.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-10 gap-2">
+                <div className="text-2xl">◎</div>
+                <div className="text-sm text-gray-600">
+                  No activity recorded on {fmtDateLabel(selectedDate)}
+                </div>
+                <div className="text-[10px] text-gray-700">
+                  Vehicle was offline the entire day
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Main — LiveCharts
 ───────────────────────────────────────────────────────────── */
 export default function LiveCharts() {
   const { id } = useParams();
@@ -382,8 +901,8 @@ export default function LiveCharts() {
   const [error,          setError]          = useState(null);
   const [loading,        setLoading]        = useState(true);
 
-  const esRef     = useRef(null);
-  const seenTsMs  = useRef(new Set());
+  const esRef    = useRef(null);
+  const seenTsMs = useRef(new Set());
 
   const isActivelyLive = lastUpdateTime
     ? Date.now() - lastUpdateTime.getTime() < LIVE_THRESHOLD_MS
@@ -415,7 +934,7 @@ export default function LiveCharts() {
     });
   }, []);
 
-  /* ── 1. Seed ── */
+  /* ── Seed ── */
   useEffect(() => {
     if (!id) return;
     const token = localStorage.getItem("token");
@@ -458,7 +977,7 @@ export default function LiveCharts() {
     })();
   }, [id]);
 
-  /* ── 2. SSE ── */
+  /* ── SSE ── */
   useEffect(() => {
     if (!id) return;
     const token = localStorage.getItem("token");
@@ -492,7 +1011,7 @@ export default function LiveCharts() {
     };
   }, [id, addPoint]);
 
-  /* ── 3. Rolling-window trimmer ── */
+  /* ── Rolling-window trimmer ── */
   useEffect(() => {
     const timer = setInterval(() => {
       if (isActivelyLive) {
@@ -534,7 +1053,6 @@ export default function LiveCharts() {
           Live Performance Charts
         </h1>
 
-        {/* Status row */}
         <div className="flex items-center justify-between">
           <span
             className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold ${
@@ -552,7 +1070,6 @@ export default function LiveCharts() {
           </div>
         </div>
 
-        {/* Stale session banner */}
         {isStaleSession && !isActivelyLive && (
           <div className="text-xs text-gray-400 bg-gray-800/60 border border-gray-700/50 rounded-lg px-4 py-2.5 mt-3 flex items-center gap-2">
             <span className="text-gray-500">◎</span>
@@ -562,14 +1079,12 @@ export default function LiveCharts() {
           </div>
         )}
 
-        {/* SSE error banner */}
         {error && !isStaleSession && (
           <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-2 mt-3">
             ⚠ {error}
           </div>
         )}
 
-        {/* Divider */}
         <div className="flex items-center gap-3 mt-5">
           <div className="flex-1 h-px bg-gradient-to-r from-transparent via-orange-500/15 to-transparent" />
           <span className="text-[10px] font-mono tracking-widest text-gray-700 uppercase">
@@ -579,7 +1094,7 @@ export default function LiveCharts() {
         </div>
       </div>
 
-      {/* Charts grid */}
+      {/* Live Charts grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {CHARTS.map((cfg) => (
           <ChartCard
@@ -590,6 +1105,18 @@ export default function LiveCharts() {
             isStale={isStaleSession && !isActivelyLive}
           />
         ))}
+      </div>
+
+      {/* ── Daily Activity Timeline ── */}
+      <div className="mt-10">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-orange-500/15 to-transparent" />
+          <span className="text-[10px] font-mono tracking-widest text-gray-700 uppercase">
+            Daily Activity
+          </span>
+          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-orange-500/15 to-transparent" />
+        </div>
+        <ActivityTimeline vehicleId={id} />
       </div>
 
       <p className="mt-5 text-center text-[10px] font-mono text-gray-700 tracking-widest">
