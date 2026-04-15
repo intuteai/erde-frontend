@@ -397,24 +397,24 @@ function ChartCard({ cfg, data, isLive, isStale }) {
    Activity Timeline — 24-hour odometer-based activity view
 ───────────────────────────────────────────────────────────── */
 
-// BUCKET_COUNT: 96 buckets × 15 minutes = 24 hours
-const BUCKET_COUNT    = 96;
-const BUCKET_MINS     = 15;
+// BUCKET_COUNT: 288 buckets × 5 minutes = 24 hours
+const BUCKET_COUNT    = 288;
+const BUCKET_MINS     = 5;
 const RUNNING_COLOR   = "#22c55e";   // green-500
 const IDLE_COLOR      = "#f59e0b";   // amber-400
 const OFFLINE_COLOR   = "#1f2937";   // gray-800
 
-// Build a full 96-slot array for the selected date, merging in API buckets.
+// Build a full 288-slot array for the selected date, merging in API buckets.
 // Each slot: { index, timeLabel, state: "running"|"idle"|"offline", runningSeconds, rowCount }
 function buildSlots(dateStr, buckets) {
-  // Build a lookup from bucket start-of-15min → bucket data
+  // Build a lookup from bucket start-of-5min → bucket data
   const lookup = new Map();
   for (const b of buckets) {
     const d   = new Date(b.bucket);
-    // Align to nearest 15-min floor in IST
+    // Align to nearest 5-min floor in IST
     const ist = new Date(d.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
     const h   = ist.getHours();
-    const m   = Math.floor(ist.getMinutes() / 15) * 15;
+    const m   = Math.floor(ist.getMinutes() / 5) * 5;
     const key = h * 60 + m; // minutes since midnight IST
     lookup.set(key, b);
   }
@@ -602,7 +602,7 @@ function ActivityTimeline({ vehicleId }) {
               Daily Activity
             </h2>
             <p className="text-[10px] text-gray-600 mt-0.5 font-mono tracking-widest uppercase">
-              Odometer-based · 15-min buckets
+              Odometer-based · 5-min buckets
             </p>
           </div>
 
@@ -744,7 +744,7 @@ function ActivityTimeline({ vehicleId }) {
               </div>
             </div>
 
-            {/* The 96-bucket strip */}
+            {/* The 288-bucket strip */}
             <div className="relative">
               <div className="flex gap-[1px] h-10 rounded-lg overflow-hidden">
                 {slots.map((slot) => {
