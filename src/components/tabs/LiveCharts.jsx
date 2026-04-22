@@ -135,7 +135,6 @@ const toLabel = (date) =>
     hour12: false,
   });
 
-// Format seconds → "2h 15m" or "45m" or "30s"
 const fmtDuration = (seconds) => {
   if (!seconds || seconds <= 0) return "0m";
   const h = Math.floor(seconds / 3600);
@@ -145,25 +144,21 @@ const fmtDuration = (seconds) => {
   return `${m}m`;
 };
 
-// Get today's date in IST as YYYY-MM-DD
 const getTodayIST = () =>
   new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
-// Get yesterday's date in IST as YYYY-MM-DD
 const getYesterdayIST = () => {
   const d = new Date();
   d.setDate(d.getDate() - 1);
   return d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 };
 
-// Step a YYYY-MM-DD string by N days
 const stepDate = (dateStr, days) => {
   const d = new Date(`${dateStr}T12:00:00Z`);
   d.setDate(d.getDate() + days);
   return d.toLocaleDateString("en-CA", { timeZone: "UTC" });
 };
 
-// Format YYYY-MM-DD → "Apr 14"
 const fmtDateLabel = (dateStr) => {
   const d = new Date(`${dateStr}T12:00:00Z`);
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
@@ -394,29 +389,71 @@ function ChartCard({ cfg, data, isLive, isStale }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Activity Timeline — 24-hour odometer-based activity view
+   Activity Timeline
+   ─────────────────────────────────────────────────────────────
+   4 states, derived per bucket:
+
+   RUNNING     (green)  — hrs_end > hrs_start (odometer moved).
+                          battery_status is ignored — odometer always wins.
+
+   CHARGING    (blue)   — odometer frozen AND battery_status = 'Charging'
+
+   DISCHARGING (amber)  — odometer frozen AND battery_status = 'Discharging'
+
+   OFFLINE     (dark)   — no bucket at all
+                        OR odometer frozen AND battery_status is anything
+                          other than 'Charging' / 'Discharging'
+                          (covers 'OFF', NULL, and any future garbage values)
 ───────────────────────────────────────────────────────────── */
 
-// BUCKET_COUNT: 288 buckets × 5 minutes = 24 hours
-const BUCKET_COUNT    = 288;
-const BUCKET_MINS     = 5;
-const RUNNING_COLOR   = "#22c55e";   // green-500
-const IDLE_COLOR      = "#f59e0b";   // amber-400
-const OFFLINE_COLOR   = "#1f2937";   // gray-800
+const BUCKET_COUNT       = 288;   // 288 × 5 min = 24 h
+const BUCKET_MINS        = 5;
 
-// Build a full 288-slot array for the selected date, merging in API buckets.
-// Each slot: { index, timeLabel, state: "running"|"idle"|"offline", runningSeconds, rowCount }
+const RUNNING_COLOR      = "#22c55e";   // green-500
+const CHARGING_COLOR     = "#3b82f6";   // blue-500
+const DISCHARGING_COLOR  = "#f59e0b";   // amber-400
+const OFFLINE_COLOR      = "#1f2937";   // gray-800
+
+/* Map state → colour */
+const stateColor = (state) => {
+  switch (state) {
+    case "running":      return RUNNING_COLOR;
+    case "charging":     return CHARGING_COLOR;
+    case "discharging":  return DISCHARGING_COLOR;
+    default:             return OFFLINE_COLOR;   // "offline" + anything unexpected
+  }
+};
+
+/* Map state → human label */
+const stateLabel = (state) => {
+  switch (state) {
+    case "running":      return "Running";
+    case "charging":     return "Charging";
+    case "discharging":  return "Discharging";
+    default:             return "Offline";
+  }
+};
+
+/*
+  buildSlots
+  ──────────
+  Returns a full 288-element array (one per 5-min slot in the day).
+  Each slot carries the derived state and raw metadata for the tooltip.
+
+  State derivation for buckets that have data (hrs_end / hrs_start):
+    1. delta > 0              → "running"       (odometer moved — wins unconditionally)
+    2. battery_status = 'Charging'    → "charging"
+    3. battery_status = 'Discharging' → "discharging"
+    4. anything else (OFF, NULL, …)   → "offline"  (treated as dark / no signal)
+*/
 function buildSlots(dateStr, buckets) {
-  // Build a lookup from bucket start-of-5min → bucket data
   const lookup = new Map();
   for (const b of buckets) {
     const d   = new Date(b.bucket);
-    // Align to nearest 5-min floor in IST
     const ist = new Date(d.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
     const h   = ist.getHours();
     const m   = Math.floor(ist.getMinutes() / 5) * 5;
-    const key = h * 60 + m; // minutes since midnight IST
-    lookup.set(key, b);
+    lookup.set(h * 60 + m, b);
   }
 
   const slots = [];
@@ -431,25 +468,39 @@ function buildSlots(dateStr, buckets) {
     let state          = "offline";
     let runningSeconds = 0;
     let rowCount       = 0;
+    let batteryStatus  = null;
 
     if (b) {
-      rowCount = b.row_count;
-      const delta = b.hrs_end - b.hrs_start; // seconds
+      rowCount      = b.row_count;
+      batteryStatus = b.battery_status ?? null;
+      const delta   = b.hrs_end - b.hrs_start;
+
       if (delta > 0) {
+        // Odometer moved — always running regardless of battery_status
         state          = "running";
         runningSeconds = delta;
+      } else if (batteryStatus === "Charging") {
+        state = "charging";
+      } else if (batteryStatus === "Discharging") {
+        state = "discharging";
       } else {
-        state = "idle";
+        // OFF, NULL, or any unknown value → treat as offline (dark)
+        state = "offline";
       }
     }
 
-    slots.push({ index: i, timeLabel, state, runningSeconds, rowCount });
+    slots.push({ index: i, timeLabel, state, runningSeconds, rowCount, batteryStatus });
   }
 
   return slots;
 }
 
-// Derive contiguous sessions from slots
+/*
+  buildSessions
+  ─────────────
+  Collapses contiguous same-state slots into sessions.
+  "offline" slots break sessions but are not included themselves.
+*/
 function buildSessions(slots) {
   const sessions = [];
   let current    = null;
@@ -462,16 +513,16 @@ function buildSessions(slots) {
     if (!current || current.state !== slot.state) {
       if (current) sessions.push(current);
       current = {
-        state:         slot.state,
-        startLabel:    slot.timeLabel,
-        endLabel:      slot.timeLabel,
-        endIndex:      slot.index,
+        state:          slot.state,
+        startLabel:     slot.timeLabel,
+        endLabel:       slot.timeLabel,
+        endIndex:       slot.index,
         runningSeconds: slot.runningSeconds,
-        slots:         1,
+        slots:          1,
       };
     } else {
-      current.endLabel      = slot.timeLabel;
-      current.endIndex      = slot.index;
+      current.endLabel        = slot.timeLabel;
+      current.endIndex        = slot.index;
       current.runningSeconds += slot.runningSeconds;
       current.slots++;
     }
@@ -480,16 +531,16 @@ function buildSessions(slots) {
   return sessions;
 }
 
-// Tooltip for hovered bucket
-function BucketTooltip({ slot, visible }) {
-  if (!visible || !slot) return null;
-  const stateLabel = slot.state === "running" ? "Running" : slot.state === "idle" ? "VCU On" : "Offline";
-  const color      = slot.state === "running" ? RUNNING_COLOR : slot.state === "idle" ? IDLE_COLOR : "#6b7280";
+/* Bucket hover tooltip */
+function BucketTooltip({ slot }) {
+  if (!slot) return null;
+  const color = stateColor(slot.state);
+  const label = stateLabel(slot.state);
 
   return (
     <div
       className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50 pointer-events-none"
-      style={{ minWidth: 120 }}
+      style={{ minWidth: 128 }}
     >
       <div
         className="rounded-lg px-3 py-2 text-xs shadow-2xl border"
@@ -500,17 +551,16 @@ function BucketTooltip({ slot, visible }) {
         }}
       >
         <div className="font-mono text-gray-400 text-[10px] mb-1">{slot.timeLabel}</div>
-        <div className="font-bold" style={{ color }}>{stateLabel}</div>
-        {slot.state === "running" && (
+        <div className="font-bold" style={{ color }}>{label}</div>
+        {slot.state === "running" && slot.runningSeconds > 0 && (
           <div className="text-gray-500 text-[10px] mt-0.5">
-            +{fmtDuration(slot.runningSeconds)}
+            +{fmtDuration(slot.runningSeconds)} odometer
           </div>
         )}
         {slot.rowCount > 0 && (
-          <div className="text-gray-600 text-[10px]">{slot.rowCount} pts</div>
+          <div className="text-gray-600 text-[10px] mt-0.5">{slot.rowCount} pts</div>
         )}
       </div>
-      {/* Arrow */}
       <div
         className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0"
         style={{
@@ -528,29 +578,25 @@ function ActivityTimeline({ vehicleId }) {
   const yesterdayIST = getYesterdayIST();
 
   const [selectedDate, setSelectedDate] = useState(todayIST);
-  const [data,         setData]         = useState(null);   // null = not loaded yet
+  const [data,         setData]         = useState(null);
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState(null);
-  const [hoveredSlot,  setHoveredSlot]  = useState(null);
   const [hoveredIdx,   setHoveredIdx]   = useState(null);
 
-  /* ── Fetch activity data for selected date ── */
+  /* ── Fetch ── */
   const fetchActivity = useCallback(async (date) => {
     const token = localStorage.getItem("token");
     if (!token || !vehicleId) return;
-
     setLoading(true);
     setError(null);
     setData(null);
-
     try {
       const res = await fetch(
         `/api/vehicles/${vehicleId}/activity?date=${date}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setData(json);
+      setData(await res.json());
     } catch (err) {
       console.error("[ActivityTimeline] fetch failed:", err.message);
       setError("Failed to load activity data");
@@ -559,31 +605,35 @@ function ActivityTimeline({ vehicleId }) {
     }
   }, [vehicleId]);
 
-  useEffect(() => {
-    fetchActivity(selectedDate);
-  }, [selectedDate, fetchActivity]);
+  useEffect(() => { fetchActivity(selectedDate); }, [selectedDate, fetchActivity]);
 
-  /* ── Build display data ── */
+  /* ── Derived data ── */
   const slots    = useMemo(() => buildSlots(selectedDate, data?.buckets ?? []), [selectedDate, data]);
   const sessions = useMemo(() => buildSessions(slots), [slots]);
   const summary  = data?.summary;
 
-  /* ── Date navigation ── */
-  const canGoForward = selectedDate < todayIST;
+  /* ── Summary counts derived from slots (client-side, no extra API needed) ── */
+  const chargingHours = useMemo(() =>
+    slots.filter((s) => s.state === "charging").length * BUCKET_MINS / 60,
+  [slots]);
 
-  const hourLabels = ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "24:00"];
+  const dischargingHours = useMemo(() =>
+    slots.filter((s) => s.state === "discharging").length * BUCKET_MINS / 60,
+  [slots]);
 
-  /* ── Longest idle gap ── */
-  const longestIdleSeconds = useMemo(() => {
+  const longestDischargingSeconds = useMemo(() => {
     let max = 0;
     for (const s of sessions) {
-      if (s.state === "idle") {
+      if (s.state === "discharging") {
         const secs = s.slots * BUCKET_MINS * 60;
         if (secs > max) max = secs;
       }
     }
     return max;
   }, [sessions]);
+
+  const canGoForward = selectedDate < todayIST;
+  const hourLabels   = ["00:00","03:00","06:00","09:00","12:00","15:00","18:00","21:00","24:00"];
 
   return (
     <div
@@ -594,21 +644,18 @@ function ActivityTimeline({ vehicleId }) {
         boxShadow:  "0 4px 20px rgba(0,0,0,0.45)",
       }}
     >
-      {/* Header */}
+      {/* ── Header ── */}
       <div className="px-6 pt-5 pb-4 border-b border-white/[0.04]">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h2 className="text-base font-bold text-gray-100 tracking-wide">
-              Daily Activity
-            </h2>
+            <h2 className="text-base font-bold text-gray-100 tracking-wide">Daily Activity</h2>
             <p className="text-[10px] text-gray-600 mt-0.5 font-mono tracking-widest uppercase">
               Odometer-based · 5-min buckets
             </p>
           </div>
 
-          {/* Date selector */}
+          {/* Date controls */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Quick chips */}
             <button
               onClick={() => setSelectedDate(todayIST)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
@@ -630,15 +677,11 @@ function ActivityTimeline({ vehicleId }) {
               Yesterday
             </button>
 
-            {/* Prev / Date label / Next */}
             <div className="flex items-center gap-1 bg-gray-800/40 rounded-lg border border-gray-700/50 px-1">
               <button
                 onClick={() => setSelectedDate((d) => stepDate(d, -1))}
                 className="px-2 py-1.5 text-gray-500 hover:text-gray-300 transition text-sm"
-                title="Previous day"
-              >
-                ‹
-              </button>
+              >‹</button>
               <span className="text-xs text-gray-400 font-mono px-1 min-w-[52px] text-center">
                 {fmtDateLabel(selectedDate)}
               </span>
@@ -646,13 +689,9 @@ function ActivityTimeline({ vehicleId }) {
                 onClick={() => setSelectedDate((d) => stepDate(d, 1))}
                 disabled={!canGoForward}
                 className="px-2 py-1.5 text-gray-500 hover:text-gray-300 transition text-sm disabled:opacity-30 disabled:cursor-not-allowed"
-                title="Next day"
-              >
-                ›
-              </button>
+              >›</button>
             </div>
 
-            {/* Date picker */}
             <input
               type="date"
               value={selectedDate}
@@ -665,13 +704,14 @@ function ActivityTimeline({ vehicleId }) {
       </div>
 
       <div className="px-6 py-5">
-        {/* Summary pills */}
+
+        {/* ── Summary pills ── */}
         {summary && !loading && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-            <div
-              className="rounded-xl px-4 py-3"
-              style={{ background: `${RUNNING_COLOR}0d`, border: `1px solid ${RUNNING_COLOR}25` }}
-            >
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+
+            {/* Running */}
+            <div className="rounded-xl px-4 py-3"
+              style={{ background: `${RUNNING_COLOR}0d`, border: `1px solid ${RUNNING_COLOR}25` }}>
               <div className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">Running</div>
               <div className="text-xl font-black tabular-nums" style={{ color: RUNNING_COLOR }}>
                 {summary.running_hours.toFixed(2)}
@@ -679,21 +719,29 @@ function ActivityTimeline({ vehicleId }) {
               </div>
             </div>
 
-            <div
-              className="rounded-xl px-4 py-3"
-              style={{ background: `${IDLE_COLOR}0d`, border: `1px solid ${IDLE_COLOR}25` }}
-            >
-              <div className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">VCU On</div>
-              <div className="text-xl font-black tabular-nums" style={{ color: IDLE_COLOR }}>
-                {summary.idle_hours.toFixed(2)}
+            {/* Charging */}
+            <div className="rounded-xl px-4 py-3"
+              style={{ background: `${CHARGING_COLOR}0d`, border: `1px solid ${CHARGING_COLOR}25` }}>
+              <div className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">Charging</div>
+              <div className="text-xl font-black tabular-nums" style={{ color: CHARGING_COLOR }}>
+                {chargingHours.toFixed(2)}
                 <span className="text-xs font-normal text-gray-500 ml-1">hrs</span>
               </div>
             </div>
 
-            <div
-              className="rounded-xl px-4 py-3"
-              style={{ background: "rgba(167,139,250,0.05)", border: "1px solid rgba(167,139,250,0.15)" }}
-            >
+            {/* Discharging / VCU On */}
+            <div className="rounded-xl px-4 py-3"
+              style={{ background: `${DISCHARGING_COLOR}0d`, border: `1px solid ${DISCHARGING_COLOR}25` }}>
+              <div className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">Discharging</div>
+              <div className="text-xl font-black tabular-nums" style={{ color: DISCHARGING_COLOR }}>
+                {dischargingHours.toFixed(2)}
+                <span className="text-xs font-normal text-gray-500 ml-1">hrs</span>
+              </div>
+            </div>
+
+            {/* Sessions */}
+            <div className="rounded-xl px-4 py-3"
+              style={{ background: "rgba(167,139,250,0.05)", border: "1px solid rgba(167,139,250,0.15)" }}>
               <div className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">Sessions</div>
               <div className="text-xl font-black tabular-nums text-violet-400">
                 {sessions.filter((s) => s.state === "running").length}
@@ -701,79 +749,62 @@ function ActivityTimeline({ vehicleId }) {
               </div>
             </div>
 
-            <div
-              className="rounded-xl px-4 py-3"
-              style={{ background: "rgba(107,114,128,0.05)", border: "1px solid rgba(107,114,128,0.15)" }}
-            >
+            {/* Longest discharging idle */}
+            <div className="rounded-xl px-4 py-3"
+              style={{ background: "rgba(107,114,128,0.05)", border: "1px solid rgba(107,114,128,0.15)" }}>
               <div className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">Longest idle</div>
               <div className="text-xl font-black tabular-nums text-gray-400">
-                {longestIdleSeconds > 0 ? fmtDuration(longestIdleSeconds) : "–"}
+                {longestDischargingSeconds > 0 ? fmtDuration(longestDischargingSeconds) : "–"}
               </div>
             </div>
           </div>
         )}
 
-        {/* Loading state */}
+        {/* Loading */}
         {loading && (
           <div className="flex flex-col items-center justify-center py-16 gap-4">
             <div className="w-8 h-8 rounded-full border-2 border-orange-500/20 border-t-orange-500 animate-spin" />
-            <span className="text-xs text-gray-600 font-mono tracking-widest">
-              Loading activity…
-            </span>
+            <span className="text-xs text-gray-600 font-mono tracking-widest">Loading activity…</span>
           </div>
         )}
 
-        {/* Error state */}
+        {/* Error */}
         {error && !loading && (
           <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 mb-4">
             ⚠ {error}
           </div>
         )}
 
-        {/* Timeline strip */}
+        {/* ── Timeline ── */}
         {!loading && !error && (
           <>
-            {/* Hour labels above the strip */}
-            <div className="relative mb-1">
-              <div className="flex justify-between px-0">
-                {hourLabels.map((label) => (
-                  <span key={label} className="text-[9px] text-gray-700 font-mono">
-                    {label}
-                  </span>
-                ))}
-              </div>
+            {/* Hour labels */}
+            <div className="flex justify-between mb-1">
+              {hourLabels.map((l) => (
+                <span key={l} className="text-[9px] text-gray-700 font-mono">{l}</span>
+              ))}
             </div>
 
-            {/* The 288-bucket strip */}
+            {/* 288-bucket strip */}
             <div className="relative">
               <div className="flex gap-[1px] h-10 rounded-lg overflow-hidden">
                 {slots.map((slot) => {
-                  const color =
-                    slot.state === "running"
-                      ? RUNNING_COLOR
-                      : slot.state === "idle"
-                      ? IDLE_COLOR
-                      : OFFLINE_COLOR;
-
+                  const color     = stateColor(slot.state);
                   const isHovered = hoveredIdx === slot.index;
-
                   return (
                     <div
                       key={slot.index}
                       className="relative flex-1 cursor-pointer transition-all duration-75"
                       style={{
-                        background:  color,
-                        opacity:     slot.state === "offline" ? 1 : isHovered ? 1 : 0.75,
-                        transform:   isHovered ? "scaleY(1.15)" : "scaleY(1)",
+                        background:      color,
+                        opacity:         slot.state === "offline" ? 1 : isHovered ? 1 : 0.75,
+                        transform:       isHovered ? "scaleY(1.15)" : "scaleY(1)",
                         transformOrigin: "center",
                       }}
-                      onMouseEnter={() => { setHoveredSlot(slot); setHoveredIdx(slot.index); }}
-                      onMouseLeave={() => { setHoveredSlot(null); setHoveredIdx(null); }}
+                      onMouseEnter={() => setHoveredIdx(slot.index)}
+                      onMouseLeave={() => setHoveredIdx(null)}
                     >
-                      {/* Tooltip anchored to this bucket */}
-                      {isHovered && (
-                        <BucketTooltip slot={slot} visible={true} />
-                      )}
+                      {isHovered && <BucketTooltip slot={slot} />}
                     </div>
                   );
                 })}
@@ -791,24 +822,22 @@ function ActivityTimeline({ vehicleId }) {
               </div>
             </div>
 
-            {/* Legend */}
-            <div className="flex items-center gap-5 mt-3">
+            {/* ── Legend — 4 states ── */}
+            <div className="flex items-center gap-5 mt-3 flex-wrap">
               {[
-                { color: RUNNING_COLOR,  label: "Running (odometer moving)" },
-                { color: IDLE_COLOR,     label: "VCU On (odometer not moving)" },
-                { color: "#374151",      label: "Offline" },
+                { color: RUNNING_COLOR,     label: "Running (odometer moving)" },
+                { color: CHARGING_COLOR,    label: "Charging" },
+                { color: DISCHARGING_COLOR, label: "Discharging" },
+                { color: "#374151",         label: "Offline / Unknown" },
               ].map(({ color, label }) => (
                 <div key={label} className="flex items-center gap-1.5">
-                  <div
-                    className="w-3 h-3 rounded-sm flex-shrink-0"
-                    style={{ background: color }}
-                  />
+                  <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: color }} />
                   <span className="text-[10px] text-gray-600">{label}</span>
                 </div>
               ))}
             </div>
 
-            {/* Session breakdown */}
+            {/* ── Session breakdown ── */}
             {sessions.length > 0 && (
               <div className="mt-5">
                 <div className="text-[10px] uppercase tracking-widest text-gray-700 mb-3 font-mono">
@@ -816,48 +845,31 @@ function ActivityTimeline({ vehicleId }) {
                 </div>
                 <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                   {sessions.map((session, i) => {
-                    const color =
-                      session.state === "running" ? RUNNING_COLOR : IDLE_COLOR;
-                    const durationMins = session.slots * BUCKET_MINS;
-
-                    // End time = endIndex + 1 bucket
-                    const endMins    = (session.endIndex + 1) * BUCKET_MINS;
-                    const endH       = Math.floor(endMins / 60) % 24;
-                    const endM       = endMins % 60;
-                    const endLabel   = `${String(endH).padStart(2,"0")}:${String(endM).padStart(2,"0")}`;
+                    const color    = stateColor(session.state);
+                    const label    = stateLabel(session.state);
+                    const durMins  = session.slots * BUCKET_MINS;
+                    const endMins  = (session.endIndex + 1) * BUCKET_MINS;
+                    const endH     = Math.floor(endMins / 60) % 24;
+                    const endM     = endMins % 60;
+                    const endLabel = `${String(endH).padStart(2,"0")}:${String(endM).padStart(2,"0")}`;
 
                     return (
                       <div
                         key={i}
                         className="flex items-center gap-3 rounded-lg px-3 py-2"
-                        style={{
-                          background: color + "08",
-                          border:     `1px solid ${color}18`,
-                        }}
+                        style={{ background: color + "08", border: `1px solid ${color}18` }}
                       >
-                        {/* State dot */}
-                        <div
-                          className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ background: color }}
-                        />
+                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
 
-                        {/* Time range */}
                         <span className="text-xs font-mono text-gray-400 flex-shrink-0">
                           {session.startLabel} → {endLabel}
                         </span>
 
-                        {/* Duration */}
-                        <span
-                          className="text-xs font-bold tabular-nums"
-                          style={{ color }}
-                        >
-                          {fmtDuration(durationMins * 60)}
+                        <span className="text-xs font-bold tabular-nums" style={{ color }}>
+                          {fmtDuration(durMins * 60)}
                         </span>
 
-                        {/* State label */}
-                        <span className="text-[10px] text-gray-600 capitalize ml-auto">
-                          {session.state === "running" ? "Running" : "VCU On"}
-                        </span>
+                        <span className="text-[10px] text-gray-600 ml-auto">{label}</span>
 
                         {session.state === "running" && session.runningSeconds > 0 && (
                           <span className="text-[10px] text-gray-700 font-mono">
@@ -871,16 +883,14 @@ function ActivityTimeline({ vehicleId }) {
               </div>
             )}
 
-            {/* Empty state — no data for this day */}
+            {/* Empty state */}
             {data && data.buckets.length === 0 && (
               <div className="flex flex-col items-center justify-center py-10 gap-2">
                 <div className="text-2xl">◎</div>
                 <div className="text-sm text-gray-600">
                   No activity recorded on {fmtDateLabel(selectedDate)}
                 </div>
-                <div className="text-[10px] text-gray-700">
-                  Vehicle was offline the entire day
-                </div>
+                <div className="text-[10px] text-gray-700">Vehicle was offline the entire day</div>
               </div>
             )}
           </>
@@ -924,9 +934,7 @@ export default function LiveCharts() {
 
     setDataPoints((prev) => {
       const isOldData = Date.now() - tsMs > STALE_THRESHOLD_MS;
-      if (isOldData) {
-        return [...prev, point].slice(-MAX_POINTS);
-      }
+      if (isOldData) return [...prev, point].slice(-MAX_POINTS);
       const cutoff = Date.now() - WINDOW_MS;
       return [...prev.filter((p) => p.ts >= cutoff), point]
         .sort((a, b) => a.ts - b.ts)
@@ -952,7 +960,6 @@ export default function LiveCharts() {
           const sorted = [...rows].sort(
             (a, b) => new Date(a.recorded_at) - new Date(b.recorded_at)
           );
-
           const points = [];
           for (const raw of sorted) {
             const ts   = new Date(raw.recorded_at);
@@ -961,12 +968,8 @@ export default function LiveCharts() {
             seenTsMs.current.add(tsMs);
             points.push({ ts: tsMs, label: toLabel(ts), ...extractFields(raw) });
           }
-
           const lastRow = sorted[sorted.length - 1];
-          if (lastRow?.recorded_at) {
-            setLastUpdateTime(new Date(lastRow.recorded_at));
-          }
-
+          if (lastRow?.recorded_at) setLastUpdateTime(new Date(lastRow.recorded_at));
           setDataPoints(points);
         }
       } catch (err) {
@@ -984,7 +987,6 @@ export default function LiveCharts() {
     if (!token) return;
 
     if (esRef.current) esRef.current.close();
-
     const es = new EventSource(`/api/vehicles/${id}/stream?token=${token}`);
     esRef.current = es;
 
@@ -998,17 +1000,10 @@ export default function LiveCharts() {
         console.error("[LiveCharts] SSE parse error:", e);
       }
     };
+    es.onerror = () => setError("Live stream lost – showing last known data");
+    es.onopen  = () => setError(null);
 
-    es.onerror = () => {
-      console.warn("[LiveCharts] SSE disconnected – will auto-reconnect");
-      setError("Live stream lost – showing last known data");
-    };
-
-    es.onopen = () => setError(null);
-
-    return () => {
-      if (esRef.current) { esRef.current.close(); esRef.current = null; }
-    };
+    return () => { if (esRef.current) { esRef.current.close(); esRef.current = null; } };
   }, [id, addPoint]);
 
   /* ── Rolling-window trimmer ── */
@@ -1037,9 +1032,7 @@ export default function LiveCharts() {
             style={{ animationDuration: "1.4s", animationDirection: "reverse" }}
           />
         </div>
-        <p className="text-sm text-orange-300/70 font-medium tracking-wide">
-          Loading historical data…
-        </p>
+        <p className="text-sm text-orange-300/70 font-medium tracking-wide">Loading historical data…</p>
       </div>
     );
   }
@@ -1107,13 +1100,11 @@ export default function LiveCharts() {
         ))}
       </div>
 
-      {/* ── Daily Activity Timeline ── */}
+      {/* Daily Activity */}
       <div className="mt-10">
         <div className="flex items-center gap-3 mb-4">
           <div className="flex-1 h-px bg-gradient-to-r from-transparent via-orange-500/15 to-transparent" />
-          <span className="text-[10px] font-mono tracking-widest text-gray-700 uppercase">
-            Daily Activity
-          </span>
+          <span className="text-[10px] font-mono tracking-widest text-gray-700 uppercase">Daily Activity</span>
           <div className="flex-1 h-px bg-gradient-to-r from-transparent via-orange-500/15 to-transparent" />
         </div>
         <ActivityTimeline vehicleId={id} />
