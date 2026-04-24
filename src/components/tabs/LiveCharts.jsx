@@ -827,7 +827,7 @@ function ActivityTimeline({ vehicleId }) {
               {[
                 { color: RUNNING_COLOR,     label: "Running (odometer moving)" },
                 { color: CHARGING_COLOR,    label: "Charging" },
-                { color: DISCHARGING_COLOR, label: "Discharging" },
+                { color: DISCHARGING_COLOR, label: "Idle" },
                 { color: "#374151",         label: "Offline / Unknown" },
               ].map(({ color, label }) => (
                 <div key={label} className="flex items-center gap-1.5">
