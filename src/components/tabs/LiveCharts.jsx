@@ -729,10 +729,10 @@ function ActivityTimeline({ vehicleId }) {
               </div>
             </div>
 
-            {/* Discharging / VCU On */}
+            {/* Idle (was: Discharging) */}
             <div className="rounded-xl px-4 py-3"
               style={{ background: `${DISCHARGING_COLOR}0d`, border: `1px solid ${DISCHARGING_COLOR}25` }}>
-              <div className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">Discharging</div>
+              <div className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">Idle</div>
               <div className="text-xl font-black tabular-nums" style={{ color: DISCHARGING_COLOR }}>
                 {dischargingHours.toFixed(2)}
                 <span className="text-xs font-normal text-gray-500 ml-1">hrs</span>
