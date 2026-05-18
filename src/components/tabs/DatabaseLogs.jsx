@@ -362,6 +362,7 @@ export default function DatabaseLogs() {
 
     const abort = new AbortController();
     exportAbort.current = abort;
+    let fileWritable = null;
 
     try {
       const exportParams = new URLSearchParams();
@@ -385,57 +386,78 @@ export default function DatabaseLogs() {
 
       const headers = authHeaders();
 
-      const countRes = await fetch(
-        `/api/database-logs/${vehicleId}/count?${exportParams}`,
-        { headers, signal: abort.signal }
-      );
-      if (!countRes.ok) throw new Error("Failed to get row count");
-
-      const { total } = await countRes.json();
-
-      if (total === 0) {
-        setError("No data available for the selected range");
-        setExporting(false);
-        return;
-      }
-
-      setExportTotal(total);
-
+      // Start export directly — eliminates the count pre-fetch round-trip.
+      // X-Total-Rows header provides the row count; empty range returns HTTP 400.
       const exportRes = await fetch(
         `/api/database-logs/${vehicleId}/export?${exportParams}`,
         { headers, signal: abort.signal }
       );
 
       if (!exportRes.ok) {
-        const msg = await exportRes.text().catch(() => exportRes.statusText);
-        throw new Error(`Export failed: ${exportRes.status} ${msg}`);
+        const body = await exportRes.json().catch(() => ({ error: exportRes.statusText }));
+        setError(body.error || `Export failed (${exportRes.status})`);
+        setExporting(false);
+        return;
       }
 
-      const knownTotal = parseInt(exportRes.headers.get("X-Total-Rows") ?? "0", 10) || total;
+      const knownTotal = parseInt(exportRes.headers.get("X-Total-Rows") ?? "0", 10) || 0;
       setExportTotal(knownTotal);
 
-      const RATE_WINDOW_MS = 5000;
-      const rateWindow = [];
-      const AVG_BYTES_PER_ROW = 150;
+      // Build filename
+      const rangeTag = exportMode === "custom"
+        ? `${customStart}_to_${customEnd}`
+        : `today_${todayStr}`;
+      const filename = `raw_telemetry_${vehicleId}_${rangeTag}.csv`;
 
+      // Try File System Access API — writes each chunk straight to disk, no RAM buffering.
+      // Called after the fetch is confirmed OK, so dialog never appears for empty ranges.
+      // Falls back silently to in-memory Blob for Firefox and older browsers.
+      if (typeof window.showSaveFilePicker === "function") {
+        try {
+          const fh = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: [{ description: "CSV file", accept: { "text/csv": [".csv"] } }],
+          });
+          fileWritable = await fh.createWritable();
+        } catch (err) {
+          if (err.name === "AbortError") {
+            setExporting(false);
+            return;
+          }
+          // SecurityError / gesture timeout — fall through to memory approach
+        }
+      }
+
+      const RATE_WINDOW_MS = 5000;
+      const AVG_BYTES_PER_ROW = 150;
+      const THROTTLE_MS = 100; // update UI at most 10×/sec
+
+      const rateWindow = [];
       const reader = exportRes.body.getReader();
-      const chunks = [];
+      const chunks = fileWritable ? null : [];
       let receivedBytes = 0;
+      let lastUIUpdate = 0;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        chunks.push(value);
+        if (fileWritable) {
+          await fileWritable.write(value);
+        } else {
+          chunks.push(value);
+        }
+
         receivedBytes += value.length;
 
+        // Throttle — skip re-render if within throttle window
         const now = Date.now();
+        if (now - lastUIUpdate < THROTTLE_MS) continue;
+        lastUIUpdate = now;
+
         const estimatedRows = Math.min(Math.floor(receivedBytes / AVG_BYTES_PER_ROW), knownTotal);
         rateWindow.push({ time: now, rows: estimatedRows });
-
-        while (rateWindow.length > 1 && now - rateWindow[0].time > RATE_WINDOW_MS) {
-          rateWindow.shift();
-        }
+        while (rateWindow.length > 1 && now - rateWindow[0].time > RATE_WINDOW_MS) rateWindow.shift();
 
         let eta = null;
         if (rateWindow.length >= 2) {
@@ -450,20 +472,19 @@ export default function DatabaseLogs() {
         setExportProgress(knownTotal > 0 ? Math.min((estimatedRows / knownTotal) * 100, 99) : 0);
       }
 
-      const blob = new Blob(chunks, { type: "text/csv" });
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-
-      const rangeTag = exportMode === "custom"
-        ? `${customStart}_to_${customEnd}`
-        : `today_${todayStr}`;
-      a.download = `raw_telemetry_${vehicleId}_${rangeTag}.csv`;
-
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(blobUrl);
+      if (fileWritable) {
+        await fileWritable.close(); // commits file to the chosen location
+      } else {
+        const blob = new Blob(chunks, { type: "text/csv" });
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      }
 
       setExportProgress(100);
       setExportCurrent(knownTotal);
@@ -478,6 +499,7 @@ export default function DatabaseLogs() {
       }, 4000);
 
     } catch (err) {
+      if (fileWritable) fileWritable.abort().catch(() => {});
       if (err.name === "AbortError") {
         console.log("Export cancelled");
       } else {
@@ -508,9 +530,7 @@ export default function DatabaseLogs() {
   }, [vehicleId, selectedDate]);
 
   useEffect(() => {
-    if (rows.length === 0 && hasMore && !loading) {
-      fetchLogs(true);
-    }
+    fetchLogs(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vehicleId, selectedDate]);
 

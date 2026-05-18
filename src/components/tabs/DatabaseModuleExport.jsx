@@ -52,100 +52,100 @@ export default function DatabaseModuleExport() {
     setError(null);
 
     let abortController = new AbortController();
+    let fileWritable = null;
 
     try {
       const query = buildQuery();
       const token = localStorage.getItem("token");
       const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
-      // Step 1: Get total count for progress tracking
-      setError("⏳ Counting total rows...");
-      const countUrl = `/api/database-logs/${vehicleId}/export/${type}/count?${query}`;
-      const countRes = await fetch(countUrl, { 
-        headers: authHeaders,
-        signal: abortController.signal 
-      });
-
-      if (!countRes.ok) {
-        throw new Error('Failed to get row count');
-      }
-
-      const { total } = await countRes.json();
-      setExportTotal(total);
-
-      if (total === 0) {
-        alert(`No ${type === 'cells' ? 'cell voltage' : 'temperature'} data available for the selected range`);
-        setExporting(false);
-        setError(null);
-        return;
-      }
-
-      // Step 2: Start the export with streaming
-      setError(`📊 Exporting ${total.toLocaleString()} rows of ${type === 'cells' ? 'cell voltage' : 'temperature'} data...`);
-      
+      // Start export directly — no count pre-fetch round-trip.
+      // X-Total-Rows header provides the row count; empty range returns HTTP 400.
       const exportUrl = `/api/database-logs/${vehicleId}/export/${type}?${query}`;
-      
-      const exportRes = await fetch(exportUrl, { 
+      const exportRes = await fetch(exportUrl, {
         headers: authHeaders,
-        signal: abortController.signal 
+        signal: abortController.signal,
       });
 
       if (!exportRes.ok) {
-        throw new Error(`Export failed (${exportRes.status})`);
+        const body = await exportRes.json().catch(() => ({ error: exportRes.statusText }));
+        setError(body.error || `Export failed (${exportRes.status})`);
+        setExporting(false);
+        return;
       }
 
-      // Clear the status message
-      setError(null);
+      const knownTotal = parseInt(exportRes.headers.get('X-Total-Rows') ?? '0', 10) || 0;
+      setExportTotal(knownTotal);
 
-      // Get total from headers if available
-      const totalFromHeader = exportRes.headers.get('X-Total-Rows');
-      if (totalFromHeader) {
-        setExportTotal(parseInt(totalFromHeader, 10));
-      }
-
-      // Read the stream and track progress
-      const reader = exportRes.body.getReader();
-      const chunks = [];
-      let receivedLength = 0;
-      let estimatedRows = 0;
-      const avgBytesPerRow = type === 'cells' ? 300 : 200; // Cells have more data
-
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) break;
-
-        chunks.push(value);
-        receivedLength += value.length;
-        
-        // Estimate rows processed
-        estimatedRows = Math.floor(receivedLength / avgBytesPerRow);
-        setExportCurrent(Math.min(estimatedRows, total));
-        
-        // Calculate progress percentage
-        const progress = total > 0 ? Math.min((estimatedRows / total) * 100, 99) : 0;
-        setExportProgress(progress);
-      }
-
-      // Combine all chunks into a blob
-      const blob = new Blob(chunks, { type: 'text/csv' });
-
-      // Create download link
-      const blobUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = type === "cells"
+      // Build filename
+      const filename = type === "cells"
         ? `vehicle_${vehicleId}_cell_voltages.csv`
         : `vehicle_${vehicleId}_temperature_sensors.csv`;
 
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(blobUrl);
+      // Try File System Access API — writes chunks direct to disk, no RAM buffering.
+      // Called after the fetch is confirmed OK, so dialog never appears for empty ranges.
+      // Falls back to in-memory Blob for Firefox and older browsers.
+      if (typeof window.showSaveFilePicker === 'function') {
+        try {
+          const fh = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: [{ description: 'CSV file', accept: { 'text/csv': ['.csv'] } }],
+          });
+          fileWritable = await fh.createWritable();
+        } catch (err) {
+          if (err.name === 'AbortError') {
+            setExporting(false);
+            return;
+          }
+          // SecurityError / gesture timeout — fall through to memory approach
+        }
+      }
 
-      // Mark as complete
+      const reader = exportRes.body.getReader();
+      const chunks = fileWritable ? null : [];
+      let receivedLength = 0;
+      let lastUIUpdate = 0;
+      const avgBytesPerRow = type === 'cells' ? 300 : 200;
+      const THROTTLE_MS = 100; // update UI at most 10×/sec
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        if (fileWritable) {
+          await fileWritable.write(value);
+        } else {
+          chunks.push(value);
+        }
+
+        receivedLength += value.length;
+
+        // Throttle — skip re-render if within throttle window
+        const now = Date.now();
+        if (now - lastUIUpdate < THROTTLE_MS) continue;
+        lastUIUpdate = now;
+
+        const estimatedRows = Math.floor(receivedLength / avgBytesPerRow);
+        setExportCurrent(Math.min(estimatedRows, knownTotal));
+        setExportProgress(knownTotal > 0 ? Math.min((estimatedRows / knownTotal) * 100, 99) : 0);
+      }
+
+      if (fileWritable) {
+        await fileWritable.close();
+      } else {
+        const blob = new Blob(chunks, { type: 'text/csv' });
+        const blobUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(blobUrl);
+      }
+
       setExportProgress(100);
-      setExportCurrent(total);
+      setExportCurrent(knownTotal);
       
       // Reset progress after 3 seconds
       setTimeout(() => {
@@ -156,6 +156,7 @@ export default function DatabaseModuleExport() {
       }, 3000);
 
     } catch (err) {
+      if (fileWritable) fileWritable.abort().catch(() => {});
       if (err.name === 'AbortError') {
         console.log('Export cancelled by user');
       } else {
