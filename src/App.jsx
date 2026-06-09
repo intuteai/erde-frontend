@@ -32,29 +32,45 @@ import VCUMaster from "./components/masters/VCUMaster";
 import HMIMaster from "./components/masters/HMIMaster";
 import VehicleMaster from "./components/masters/VehicleMaster";
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 function App() {
   const [showLogin, setShowLogin] = useState(false);
-  const [user, setUser] = useState(() => {
-    const storedUser = localStorage.getItem("user");
-    try {
-      return storedUser ? JSON.parse(storedUser) : null;
-    } catch (err) {
-      console.error("Error parsing user from localStorage:", err.message);
-      return null;
-    }
-  });
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   const navigate = useNavigate();
   const location = useLocation();
 
+  axios.defaults.withCredentials = true;
+
+  // On mount: check if a valid session cookie exists
   useEffect(() => {
+    axios
+      .get(`${API_BASE_URL}/api/auth/me`)
+      .then((res) => setUser(res.data.user))
+      .catch(() => setUser(null))
+      .finally(() => setAuthLoading(false));
+  }, []);
+
+  // Listen for login events dispatched by LoginModal
+  useEffect(() => {
+    const handleAuthLogin = (e) => {
+      setUser(e.detail.user);
+      setAuthLoading(false);
+    };
+    window.addEventListener("auth:login", handleAuthLogin);
+    return () => window.removeEventListener("auth:login", handleAuthLogin);
+  }, []);
+
+  // Navigate based on user state changes
+  useEffect(() => {
+    if (authLoading) return;
+
     if (user) {
       setShowLogin(false);
-      axios.defaults.headers.common["Authorization"] = `Bearer ${user.token}`;
-
       const isLoginPage =
         location.pathname === "/" || location.pathname === "/login";
-
       if (isLoginPage) {
         const redirectTo =
           user.role === "admin" ? "/admin/splash" : "/customer/splash";
@@ -62,27 +78,57 @@ function App() {
       }
     } else {
       setShowLogin(true);
-      delete axios.defaults.headers.common["Authorization"];
       if (location.pathname !== "/") {
         navigate("/", { replace: true });
       }
     }
-  }, [user, location.pathname, navigate]);
+  }, [user, authLoading, location.pathname, navigate]);
 
-  const handleLogin = (role, name, token, email) => {
-    const newUser = { role, name, token, email };
-    setUser(newUser);
-    localStorage.setItem("user", JSON.stringify(newUser));
-    setShowLogin(false);
+  // Axios 401 interceptor — silently refresh then retry
+  useEffect(() => {
+    const interceptorId = axios.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const originalRequest = error.config;
+        const isAuthEndpoint = originalRequest.url?.includes("/api/auth/");
 
-    const redirectTo = role === "admin" ? "/admin/splash" : "/customer/splash";
-    navigate(redirectTo, { replace: true });
+        if (
+          error.response?.status === 401 &&
+          !originalRequest._retry &&
+          !isAuthEndpoint
+        ) {
+          originalRequest._retry = true;
+          try {
+            await axios.post(
+              `${API_BASE_URL}/api/auth/refresh`,
+              {},
+              { withCredentials: true }
+            );
+            return axios(originalRequest);
+          } catch {
+            setUser(null);
+            navigate("/", { replace: true });
+          }
+        }
+
+        return Promise.reject(error);
+      }
+    );
+
+    return () => axios.interceptors.response.eject(interceptorId);
+  }, [navigate]);
+
+  const handleLogin = () => {
+    // Auth state is driven by the auth:login event from LoginModal
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await axios.post(`${API_BASE_URL}/api/auth/logout`, {}, { withCredentials: true });
+    } catch (err) {
+      console.warn("Logout request failed:", err.message);
+    }
     setUser(null);
-    localStorage.removeItem("user");
-    delete axios.defaults.headers.common["Authorization"];
     setShowLogin(true);
     navigate("/", { replace: true });
   };
@@ -113,142 +159,148 @@ function App() {
 
   return (
     <div className="min-h-screen">
-      <Routes>
-        {/* Root / Login */}
-        <Route
-          path="/"
-          element={
-            showLogin || !user ? (
-              <LoginModal setShowLogin={setShowLogin} onSubmit={handleLogin} />
-            ) : (
+      {authLoading ? (
+        <div className="min-h-screen flex items-center justify-center bg-[#0b0f17]">
+          <div className="w-10 h-10 border-4 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
+        </div>
+      ) : (
+        <Routes>
+          {/* Root / Login */}
+          <Route
+            path="/"
+            element={
+              showLogin || !user ? (
+                <LoginModal setShowLogin={setShowLogin} />
+              ) : (
+                <Navigate
+                  to={user.role === "admin" ? "/admin/splash" : "/dashboard"}
+                  replace
+                />
+              )
+            }
+          />
+
+          {/* Splash Screens */}
+          <Route
+            path="/admin/splash"
+            element={
+              user && user.role === "admin" ? (
+                <AdminSplash />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/customer/splash"
+            element={
+              user && user.role === "customer" ? (
+                <CustomerSplash />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+
+          {/* Dashboards */}
+          <Route
+            path="/admin"
+            element={
+              <ProtectedLayout requiredRole="admin">
+                <AdminDashboard />
+              </ProtectedLayout>
+            }
+          />
+
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedLayout requiredRole="customer">
+                <CustomerDashboard />
+              </ProtectedLayout>
+            }
+          />
+
+          {/* Vehicle Details */}
+          <Route
+            path="/vehicle/:id"
+            element={
+              <ProtectedLayout>
+                <VehicleDetails />
+              </ProtectedLayout>
+            }
+          />
+
+          {/* ✅ LIVE TRACKING (NEW) */}
+          <Route
+            path="/vehicle/:id/track"
+            element={
+              <ProtectedLayout>
+                <VehicleLiveTrack />
+              </ProtectedLayout>
+            }
+          />
+
+          {/* Masters — Admin Only */}
+          <Route
+            path="/masters/customers"
+            element={
+              <ProtectedLayout requiredRole="admin">
+                <CustomerMaster />
+              </ProtectedLayout>
+            }
+          />
+
+          <Route
+            path="/masters/vehicle-types"
+            element={
+              <ProtectedLayout requiredRole="admin">
+                <VehicleTypeMaster />
+              </ProtectedLayout>
+            }
+          />
+
+          <Route
+            path="/masters/vcu"
+            element={
+              <ProtectedLayout requiredRole="admin">
+                <VCUMaster />
+              </ProtectedLayout>
+            }
+          />
+
+          <Route
+            path="/masters/hmi"
+            element={
+              <ProtectedLayout requiredRole="admin">
+                <HMIMaster />
+              </ProtectedLayout>
+            }
+          />
+
+          <Route
+            path="/masters/vehicles"
+            element={
+              <ProtectedLayout requiredRole="admin">
+                <VehicleMaster />
+              </ProtectedLayout>
+            }
+          />
+
+          {/* Catch-all */}
+          <Route
+            path="*"
+            element={
               <Navigate
-                to={user.role === "admin" ? "/admin/splash" : "/dashboard"}
+                to={
+                  user ? (user.role === "admin" ? "/admin" : "/dashboard") : "/"
+                }
                 replace
               />
-            )
-          }
-        />
-
-        {/* Splash Screens */}
-        <Route
-          path="/admin/splash"
-          element={
-            user && user.role === "admin" ? (
-              <AdminSplash />
-            ) : (
-              <Navigate to="/" replace />
-            )
-          }
-        />
-        <Route
-          path="/customer/splash"
-          element={
-            user && user.role === "customer" ? (
-              <CustomerSplash />
-            ) : (
-              <Navigate to="/" replace />
-            )
-          }
-        />
-
-        {/* Dashboards */}
-        <Route
-          path="/admin"
-          element={
-            <ProtectedLayout requiredRole="admin">
-              <AdminDashboard />
-            </ProtectedLayout>
-          }
-        />
-
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedLayout requiredRole="customer">
-              <CustomerDashboard />
-            </ProtectedLayout>
-          }
-        />
-
-        {/* Vehicle Details */}
-        <Route
-          path="/vehicle/:id"
-          element={
-            <ProtectedLayout>
-              <VehicleDetails />
-            </ProtectedLayout>
-          }
-        />
-
-        {/* ✅ LIVE TRACKING (NEW) */}
-        <Route
-          path="/vehicle/:id/track"
-          element={
-            <ProtectedLayout>
-              <VehicleLiveTrack />
-            </ProtectedLayout>
-          }
-        />
-
-        {/* Masters — Admin Only */}
-        <Route
-          path="/masters/customers"
-          element={
-            <ProtectedLayout requiredRole="admin">
-              <CustomerMaster />
-            </ProtectedLayout>
-          }
-        />
-
-        <Route
-          path="/masters/vehicle-types"
-          element={
-            <ProtectedLayout requiredRole="admin">
-              <VehicleTypeMaster />
-            </ProtectedLayout>
-          }
-        />
-
-        <Route
-          path="/masters/vcu"
-          element={
-            <ProtectedLayout requiredRole="admin">
-              <VCUMaster />
-            </ProtectedLayout>
-          }
-        />
-
-        <Route
-          path="/masters/hmi"
-          element={
-            <ProtectedLayout requiredRole="admin">
-              <HMIMaster />
-            </ProtectedLayout>
-          }
-        />
-
-        <Route
-          path="/masters/vehicles"
-          element={
-            <ProtectedLayout requiredRole="admin">
-              <VehicleMaster />
-            </ProtectedLayout>
-          }
-        />
-
-        {/* Catch-all */}
-        <Route
-          path="*"
-          element={
-            <Navigate
-              to={
-                user ? (user.role === "admin" ? "/admin" : "/dashboard") : "/"
-              }
-              replace
-            />
-          }
-        />
-      </Routes>
+            }
+          />
+        </Routes>
+      )}
     </div>
   );
 }
