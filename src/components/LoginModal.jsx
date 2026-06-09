@@ -7,13 +7,7 @@ import { useNavigate } from "react-router-dom";
 import erdeLogo from "../assets/ERDE_HorizontalLogo_PNG.png";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-/**
- * @typedef {Object} LoginModalProps
- * @property {() => void} [onClose] - Optional close handler
- * @property {(payload: { token: string, user: any }) => void} [onAuth] - Optional callback to push auth state up
- */
-
-/** @param {LoginModalProps} props */
+/** @param {{ onClose?: () => void, onAuth?: (payload: { user: any }) => void }} props */
 export default function LoginModal({ onClose, onAuth }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,56 +30,29 @@ export default function LoginModal({ onClose, onAuth }) {
       const { data } = await axios.post(
         `${API_BASE_URL}/api/auth/login`,
         { email, password },
-        { headers: { "Content-Type": "application/json" } }
+        {
+          headers: { "Content-Type": "application/json" },
+          withCredentials: true,
+        }
       );
 
-      const { token, user } = data;
+      const { user } = data;
 
-      // SAVE JWT TOKEN (CRITICAL FOR LIVE DATA)
-      localStorage.setItem("token", token);
-
-      // Save user info + token
-      const authPayload = {
-        token,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      };
-      localStorage.setItem("user", JSON.stringify(authPayload));
-
-      // SAVE PASSWORD FOR MASTER DB ACCESS (as you already do)
-      localStorage.setItem("loginPassword", password);
-
-      // Notify parent component
       if (typeof onAuth === "function") {
-        try {
-          onAuth({ token, user });
-        } catch (e) {
-          console.error(e);
-        }
+        try { onAuth({ user }); } catch (e) { console.error(e); }
       }
 
-      // Fire global event
       try {
         window.dispatchEvent(
-          new CustomEvent("auth:login", { detail: { token, user } })
+          new CustomEvent("auth:login", { detail: { user } })
         );
       } catch (e) {
         console.error(e);
       }
 
-      // Navigate based on role
-      // inside LoginModal handleLogin, after successful login:
-      const isAdmin = user.role === "admin";
-      const target = isAdmin ? "/admin/splash" : "/customer/splash";
+      const target = user.role === "admin" ? "/admin/splash" : "/customer/splash";
+      navigate(target, { replace: true, state: { fromLogin: true, ts: Date.now() } });
 
-      navigate(target, {
-        replace: true,
-        state: { fromLogin: true, ts: Date.now() },
-      });
-
-      // (Optional) you can remove the fallback entirely,
-      // but if you keep it, point to the same target:
       setTimeout(() => {
         if (window.location.pathname !== target) {
           window.location.replace(target);
@@ -110,9 +77,6 @@ export default function LoginModal({ onClose, onAuth }) {
   };
 
   const handleReset = () => {
-    localStorage.removeItem("user");
-    localStorage.removeItem("token");
-    localStorage.removeItem("loginPassword");
     setEmail("");
     setPassword("");
     setError("");
