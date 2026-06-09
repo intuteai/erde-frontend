@@ -34,6 +34,8 @@ import VehicleMaster from "./components/masters/VehicleMaster";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
+axios.defaults.withCredentials = true;
+
 function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [user, setUser] = useState(null);
@@ -41,8 +43,6 @@ function App() {
 
   const navigate = useNavigate();
   const location = useLocation();
-
-  axios.defaults.withCredentials = true;
 
   // On mount: check if a valid session cookie exists
   useEffect(() => {
@@ -57,7 +57,6 @@ function App() {
   useEffect(() => {
     const handleAuthLogin = (e) => {
       setUser(e.detail.user);
-      setAuthLoading(false);
     };
     window.addEventListener("auth:login", handleAuthLogin);
     return () => window.removeEventListener("auth:login", handleAuthLogin);
@@ -105,9 +104,10 @@ function App() {
               { withCredentials: true }
             );
             return axios(originalRequest);
-          } catch {
+          } catch (refreshErr) {
             setUser(null);
             navigate("/", { replace: true });
+            return Promise.reject(refreshErr);
           }
         }
 
@@ -117,10 +117,6 @@ function App() {
 
     return () => axios.interceptors.response.eject(interceptorId);
   }, [navigate]);
-
-  const handleLogin = () => {
-    // Auth state is driven by the auth:login event from LoginModal
-  };
 
   const handleLogout = async () => {
     try {
