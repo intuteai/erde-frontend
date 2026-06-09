@@ -89,14 +89,10 @@ function Header({ user, onLogout }) {
     setLoading(true);
 
     try {
-      const token = localStorage.getItem("token") || user?.token;
-
       const res = await fetch(`${API_BASE_URL}/api/user/change-password`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           current_password: currentPassword,
           new_password: newPassword,
