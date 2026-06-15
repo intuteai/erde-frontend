@@ -115,12 +115,8 @@ export default function VehicleLiveTrack() {
   useEffect(() => {
     if (!id) return;
 
-    const user = JSON.parse(localStorage.getItem("user") || "{}");
-    const token = user?.token;
-    if (!token) return;
-
-    const url = `${API_BASE_URL}/api/vehicles/${id}/location/stream?token=${token}`;
-    const es = new EventSource(url);
+    const url = `${API_BASE_URL}/api/vehicles/${id}/location/stream`;
+    const es = new EventSource(url, { withCredentials: true });
     eventSourceRef.current = es;
 
     es.onmessage = (e) => {

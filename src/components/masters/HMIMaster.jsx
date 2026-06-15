@@ -12,10 +12,7 @@ import axios from "axios";
 // API Base URLs
 const API_BASE = "http://localhost:5000/api/hmi";
 
-const getAuthHeaders = () => {
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  return user.token ? { Authorization: `Bearer ${user.token}` } : {};
-};
+const getAuthHeaders = () => ({});
 
 export default function HMIMaster() {
   const [rows, setRows] = useState([]);

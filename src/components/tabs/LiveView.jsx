@@ -62,13 +62,10 @@ export default function LiveView() {
   useEffect(() => {
     if (!id) { setError("Invalid vehicle ID"); setLoading(false); return; }
 
-    const token = localStorage.getItem("token");
-    if (!token) { setError("Please log in to view live data"); setLoading(false); return; }
-
     const fetchSnapshot = async () => {
       try {
         const res = await fetch(`/api/vehicles/${id}/live`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
         if (!res.ok) {
           const text = await res.text();
@@ -90,7 +87,7 @@ export default function LiveView() {
 
     if (eventSourceRef.current) eventSourceRef.current.close();
 
-    const es = new EventSource(`/api/vehicles/${id}/stream?token=${token}`);
+    const es = new EventSource(`/api/vehicles/${id}/stream`, { withCredentials: true });
     eventSourceRef.current = es;
 
     es.onmessage = (event) => {

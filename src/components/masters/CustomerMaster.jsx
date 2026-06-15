@@ -12,10 +12,8 @@ import axios from "axios";
 /* ================= BACKEND ================= */
 const API_BASE = "http://localhost:5000/api/customers";
 
-const getAuthHeaders = () => {
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  return user.token ? { Authorization: `Bearer ${user.token}` } : {};
-};
+const getAuthHeaders = () => ({});
+
 
 /* ================= COMPONENT ================= */
 export default function CustomerMaster() {

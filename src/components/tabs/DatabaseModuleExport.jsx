@@ -56,14 +56,12 @@ export default function DatabaseModuleExport() {
 
     try {
       const query = buildQuery();
-      const token = localStorage.getItem("token");
-      const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
       // Start export directly — no count pre-fetch round-trip.
       // X-Total-Rows header provides the row count; empty range returns HTTP 400.
       const exportUrl = `/api/database-logs/${vehicleId}/export/${type}?${query}`;
       const exportRes = await fetch(exportUrl, {
-        headers: authHeaders,
+        credentials: "include",
         signal: abortController.signal,
       });
 

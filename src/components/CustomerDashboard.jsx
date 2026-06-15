@@ -71,8 +71,6 @@ export default function CustomerDashboard() {
   const [page, setPage] = useState(1);
 
   const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  const token = user?.token;
 
   /* =========================
      FETCH CUSTOMER VEHICLES
@@ -83,7 +81,7 @@ export default function CustomerDashboard() {
 
     try {
       const res = await axios.get(`${API_BASE_URL}/api/vehicle-master/my`, {
-        headers: { Authorization: `Bearer ${token}` },
+        withCredentials: true,
       });
 
       const formatted = (res.data || []).map((row) => ({
@@ -109,14 +107,8 @@ export default function CustomerDashboard() {
   };
 
   useEffect(() => {
-    if (!token) {
-      setError("Not authenticated. Redirecting to login...");
-      setTimeout(() => navigate("/login"), 2000);
-      setLoading(false);
-      return;
-    }
     fetchData();
-  }, [token, navigate]);
+  }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);

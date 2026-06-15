@@ -31,15 +31,12 @@ export default function MotorFaults() {
     const fetchFaults = async () => {
       try {
         setLoading(true);
-        const token = localStorage.getItem("token");
 
         const url = selectedDate
           ? `/api/faults/${id}?date=${selectedDate}`
           : `/api/faults/${id}?days=30`;
 
-        const res = await fetch(url, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(url, { credentials: "include" });
 
         if (!res.ok) throw new Error("Failed to load faults");
 

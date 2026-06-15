@@ -15,16 +15,12 @@ export default function BatteryAnalytics() {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const token = localStorage.getItem("token");
-        if (!token) throw new Error("Not authenticated");
 
         const url = selectedDate
           ? `/api/battery/analytics/${id}?date=${selectedDate}`
           : `/api/battery/analytics/${id}?days=30`;
 
-        const res = await fetch(url, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(url, { credentials: "include" });
 
         if (!res.ok) throw new Error("Failed to load battery analytics");
 

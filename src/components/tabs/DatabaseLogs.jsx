@@ -243,10 +243,6 @@ const fmtEta = (seconds) => {
   return `~${m}m ${s}s remaining`;
 };
 
-const authHeaders = () => {
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
 
 /* ============================================================
    COMPONENT
@@ -322,7 +318,7 @@ export default function DatabaseLogs() {
       if (!reset && cursor) params.set("cursor", cursor);
 
       const res = await fetch(`/api/database-logs/${vehicleId}?${params}`, {
-        headers: authHeaders(),
+        credentials: "include",
       });
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -384,13 +380,11 @@ export default function DatabaseLogs() {
         .map(c => c.key);
       exportParams.set("columns", JSON.stringify(colsToExport));
 
-      const headers = authHeaders();
-
       // Start export directly — eliminates the count pre-fetch round-trip.
       // X-Total-Rows header provides the row count; empty range returns HTTP 400.
       const exportRes = await fetch(
         `/api/database-logs/${vehicleId}/export?${exportParams}`,
-        { headers, signal: abort.signal }
+        { credentials: "include", signal: abort.signal }
       );
 
       if (!exportRes.ok) {

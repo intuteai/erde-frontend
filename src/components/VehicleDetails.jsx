@@ -19,11 +19,10 @@ export default function VehicleDetails() {
     const vehicleData = localStorage.getItem("selectedVehicle");
     if (vehicleData) setVehicle(JSON.parse(vehicleData));
 
-    const userData = localStorage.getItem("user");
-    if (userData) {
-      const parsed = JSON.parse(userData);
-      setUser(parsed);
-    }
+    fetch("/api/auth/me", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.user) setUser(data.user); })
+      .catch(() => {});
   }, []);
 
   if (!vehicle) return null;

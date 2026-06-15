@@ -15,16 +15,12 @@ export default function MotorAnalytics() {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const token = localStorage.getItem("token");
-        if (!token) throw new Error("Not authenticated");
 
         const url = selectedDate
           ? `/api/motor/analytics/${id}?date=${selectedDate}`
           : `/api/motor/analytics/${id}?days=30`;
 
-        const res = await fetch(url, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(url, { credentials: "include" });
 
         if (!res.ok) throw new Error("Failed to load motor analytics");
 

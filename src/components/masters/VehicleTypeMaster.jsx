@@ -15,10 +15,7 @@ import axios from "axios";
 const API_BASE = "http://localhost:5000/api/vehicle-types";
 const CATEGORY_API = "http://localhost:5000/api/vehicle-categories";
 
-const getAuthHeaders = () => {
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  return user.token ? { Authorization: `Bearer ${user.token}` } : {};
-};
+const getAuthHeaders = () => ({});
 
 export default function VehicleTypeMaster() {
   const [rows, setRows] = useState([]);
@@ -33,31 +30,17 @@ export default function VehicleTypeMaster() {
   const fetchTypes = async () => {
     setLoading(true);
     setError("");
-    const headers = getAuthHeaders();
-
-    if (!headers.Authorization) {
-      setError("Not logged in. Redirecting to login...");
-      setTimeout(() => (window.location.href = "/login"), 2000);
-      setLoading(false);
-      return;
-    }
 
     try {
-      const { data } = await axios.get(API_BASE, { headers });
-      console.log("VEHICLE TYPES LOADED:", data);
+      const { data } = await axios.get(API_BASE);
       setRows(Array.isArray(data) ? data : []);
     } catch (e) {
       const msg = e.response?.data?.error || e.message || "Failed to load vehicle types";
       setError(
         msg.includes("Unauthorized") || e.response?.status === 401
-          ? "Session expired! Redirecting..."
+          ? "Session expired"
           : msg
       );
-
-      if (e.response?.status === 401) {
-        localStorage.removeItem("user");
-        setTimeout(() => (window.location.href = "/login"), 2000);
-      }
     } finally {
       setLoading(false);
     }

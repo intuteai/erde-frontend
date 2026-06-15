@@ -52,7 +52,7 @@ Data is streamed in real time via Server-Sent Events (SSE) and displayed on inte
 - Interactive map tracking with animated markers, route trail, and status indicators
 
 ### Shared
-- JWT-based authentication with role-based routing
+- HttpOnly cookie-based authentication with automatic token refresh and role-based routing
 - Real-time vehicle location via Leaflet map
 - QR code generation for vehicle/module identification
 - Toast notifications and loading states
@@ -241,19 +241,38 @@ GitHub Actions workflow at [.github/workflows/erde-frontend.yml](.github/workflo
 The frontend communicates with the backend via:
 
 - **REST API** — CRUD, authentication, and data queries at `VITE_API_URL/api/`
-- **Server-Sent Events (SSE)** — real-time telemetry stream at `/api/vehicles/:id/stream?token=<jwt>`
-- **Socket.io** — WebSocket-based real-time updates (optional/extensible)
+- **Server-Sent Events (SSE)** — real-time telemetry streams via `EventSource` with `{ withCredentials: true }` so HttpOnly cookies are sent automatically
+- All Axios requests use `withCredentials: true` (set globally in `App.jsx`; also explicit on the `axios.create()` instance in `AdminDashboard`)
+- All native `fetch()` calls use `credentials: "include"`
 
-All REST requests include an `Authorization: Bearer <token>` header set by Axios.
+No `Authorization` headers are set in frontend code — authentication is entirely cookie-driven.
 
 ---
 
 ## Authentication
 
-- Login via email and password through the `LoginModal`
-- JWT token stored in `localStorage` under the key `token`
-- User profile (name, email, role) stored in `localStorage.user`
-- Role determines routing on login:
-  - `admin` → `/admin`
-  - `customer` → `/customer`
-- Logout clears `localStorage` and redirects to the home splash screen
+The app uses **HttpOnly cookie-based authentication** with a short-lived access token and a rotating refresh token. No tokens are stored in `localStorage` or `sessionStorage`.
+
+### Flow
+
+1. User logs in via `LoginModal` → backend sets two HttpOnly cookies:
+   - `access_token` — 15-minute JWT, path `/`
+   - `refresh_token` — 7-day random token (hashed in DB), path `/api/auth`
+2. On mount, `App.jsx` calls `GET /api/auth/me` with cookies to restore session state
+3. Axios 401 interceptor silently calls `POST /api/auth/refresh` and retries the original request; if refresh fails, user is sent back to the login screen
+4. Logout calls `POST /api/auth/logout`, which deletes the refresh token from the DB and clears both cookies
+
+### Role-based routing
+
+| Role | After login |
+|---|---|
+| `admin` | `/admin/splash` → `/admin` |
+| `customer` | `/customer/splash` → `/dashboard` |
+
+### Security properties
+
+- Tokens never touch JavaScript — XSS cannot steal credentials
+- `SameSite=Strict` prevents CSRF
+- `Secure` flag enforced (production requires HTTPS)
+- Refresh token is stored as a SHA-256 hash in the DB — database leak does not expose usable tokens
+- 401 on any API route triggers automatic silent refresh before showing a login prompt

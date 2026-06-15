@@ -5,10 +5,7 @@ import axios from "axios";
 /* ===================== API ===================== */
 const API_BASE = "http://localhost:5000/api/vcu";
 
-const getAuthHeaders = () => {
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  return user.token ? { Authorization: `Bearer ${user.token}` } : {};
-};
+const getAuthHeaders = () => ({});
 
 export default function VCUMaster() {
   const [rows, setRows] = useState([]);

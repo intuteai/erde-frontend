@@ -26,10 +26,7 @@ const formatDate = (d) => {
 };
 
 // Get Auth Headers
-const getAuthHeaders = () => {
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  return user.token ? { Authorization: `Bearer ${user.token}` } : {};
-};
+const getAuthHeaders = () => ({});
 
 export default function VehicleMaster() {
   const [rows, setRows] = useState([]);

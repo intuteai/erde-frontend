@@ -585,15 +585,14 @@ function ActivityTimeline({ vehicleId }) {
 
   /* ── Fetch ── */
   const fetchActivity = useCallback(async (date) => {
-    const token = localStorage.getItem("token");
-    if (!token || !vehicleId) return;
+    if (!vehicleId) return;
     setLoading(true);
     setError(null);
     setData(null);
     try {
       const res = await fetch(
         `/api/vehicles/${vehicleId}/activity?date=${date}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setData(await res.json());
@@ -945,13 +944,11 @@ export default function LiveCharts() {
   /* ── Seed ── */
   useEffect(() => {
     if (!id) return;
-    const token = localStorage.getItem("token");
-    if (!token) { setError("Not authenticated"); setLoading(false); return; }
 
     (async () => {
       try {
         const res = await fetch(`/api/vehicles/${id}/timeseries?minutes=5`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const rows = await res.json();
@@ -983,11 +980,9 @@ export default function LiveCharts() {
   /* ── SSE ── */
   useEffect(() => {
     if (!id) return;
-    const token = localStorage.getItem("token");
-    if (!token) return;
 
     if (esRef.current) esRef.current.close();
-    const es = new EventSource(`/api/vehicles/${id}/stream?token=${token}`);
+    const es = new EventSource(`/api/vehicles/${id}/stream`, { withCredentials: true });
     esRef.current = es;
 
     es.onmessage = (event) => {

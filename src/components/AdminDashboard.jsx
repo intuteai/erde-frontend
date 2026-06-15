@@ -15,7 +15,8 @@ const PAGE_SIZE = 10;
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000,   // 30s — batch analytics can be slow on large date ranges
+  timeout: 30000,
+  withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
 
@@ -65,8 +66,6 @@ const StatusPill = React.memo(({ status }) => {
 export default function AdminDashboard() {
   const navigate = useNavigate();
 
-  const user  = useMemo(() => JSON.parse(localStorage.getItem("user") || "{}"), []);
-  const token = user?.token;
 
   const [rows,       setRows]       = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -84,19 +83,12 @@ export default function AdminDashboard() {
 
   /* ── Fetch ───────────────────────────────────────────────── */
   const fetchData = useCallback(async () => {
-    if (!token) return;
-
     setError("");
     setLoading(true);
 
     try {
-      const authHeader = { Authorization: `Bearer ${token}` };
-
       // Step 1: always fetch base summary (status, vehicle info, all-time totals)
-      const summaryRes = await apiClient.get(
-        "/api/vehicle-master/admin-summary",
-        { headers: authHeader }
-      );
+      const summaryRes = await apiClient.get("/api/vehicle-master/admin-summary");
 
       let baseRows = summaryRes.data.map((row) => ({
         vehicle_master_id: row.vehicle_master_id,
@@ -125,10 +117,7 @@ export default function AdminDashboard() {
             ? "mode=today"
             : `from=${fromDate}&to=${toDate}`;
 
-        const batchRes = await apiClient.get(
-          `/api/vehicles/analytics/batch?${params}`,
-          { headers: authHeader }
-        );
+        const batchRes = await apiClient.get(`/api/vehicles/analytics/batch?${params}`);
 
         // batchRes.data is { [vehicle_master_id]: { running_hours, kwh_consumed, avg_kwh } }
         const analyticsMap = batchRes.data;
@@ -153,17 +142,12 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [token, analyticsMode, fromDate, toDate]);
+  }, [analyticsMode, fromDate, toDate]);
 
   /* ── Effects ─────────────────────────────────────────────── */
   useEffect(() => {
-    if (!token) {
-      setError("Authentication required. Redirecting to login...");
-      setTimeout(() => navigate("/login"), 1800);
-      return;
-    }
     fetchData();
-  }, [token, analyticsMode, fromDate, toDate, navigate, fetchData]);
+  }, [analyticsMode, fromDate, toDate, navigate, fetchData]);
 
   // Debounced search
   useEffect(() => {
