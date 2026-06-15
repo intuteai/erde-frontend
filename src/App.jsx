@@ -36,6 +36,17 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 axios.defaults.withCredentials = true;
 
+// Module-level so the queue survives re-renders and isn't reset between interceptor calls
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error) => {
+  failedQueue.forEach(({ resolve, reject }) =>
+    error ? reject(error) : resolve()
+  );
+  failedQueue = [];
+};
+
 function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [user, setUser] = useState(null);
@@ -85,29 +96,39 @@ function App() {
 
   // Axios 401 interceptor — silently refresh then retry
   useEffect(() => {
+    isRefreshing = false;
+    failedQueue = [];
+
     const interceptorId = axios.interceptors.response.use(
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
-        const isAuthEndpoint = originalRequest.url?.includes("/api/auth/");
 
-        if (
-          error.response?.status === 401 &&
-          !originalRequest._retry &&
-          !isAuthEndpoint
-        ) {
+        if (error.response?.status === 401 && !originalRequest._retry) {
+          if (isRefreshing) {
+            return new Promise((resolve, reject) => {
+              failedQueue.push({ resolve, reject });
+            }).then(() => axios(originalRequest));
+          }
+
           originalRequest._retry = true;
+          isRefreshing = true;
+
           try {
             await axios.post(
               `${API_BASE_URL}/api/auth/refresh`,
               {},
-              { withCredentials: true }
+              { withCredentials: true, _retry: true }
             );
+            processQueue(null);
             return axios(originalRequest);
           } catch (refreshErr) {
+            processQueue(refreshErr);
             setUser(null);
             navigate("/", { replace: true });
             return Promise.reject(refreshErr);
+          } finally {
+            isRefreshing = false;
           }
         }
 
