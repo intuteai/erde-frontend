@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
+import axios from "axios";
 
 const LIVE_THRESHOLD_MS = 15000;
 
@@ -64,14 +65,7 @@ export default function LiveView() {
 
     const fetchSnapshot = async () => {
       try {
-        const res = await fetch(`/api/vehicles/${id}/live`, {
-          credentials: "include",
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Failed: ${res.status} ${text || res.statusText}`);
-        }
-        const data = await res.json();
+        const { data } = await axios.get(`/api/vehicles/${id}/live`);
         setLive(data);
         if (data.recorded_at) setLastUpdateTime(new Date(data.recorded_at));
         setError(null);
@@ -100,8 +94,10 @@ export default function LiveView() {
     };
 
     es.onerror = () => {
-      console.warn("SSE disconnected – will auto-reconnect");
+      console.warn("SSE disconnected – refreshing auth then reconnecting");
       setError("Live stream lost – showing last known data");
+      // Proactively refresh the access_token so the SSE auto-reconnect succeeds
+      axios.get("/api/auth/me").catch(() => {});
     };
 
     es.onopen = () => { console.log("SSE connected"); setError(null); };

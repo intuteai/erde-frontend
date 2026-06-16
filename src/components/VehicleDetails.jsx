@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import axios from "axios";
 
 /* ===== TAB IMPORTS ===== */
 import LiveView from "./tabs/LiveView";
@@ -19,9 +20,8 @@ export default function VehicleDetails() {
     const vehicleData = localStorage.getItem("selectedVehicle");
     if (vehicleData) setVehicle(JSON.parse(vehicleData));
 
-    fetch("/api/auth/me", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data?.user) setUser(data.user); })
+    axios.get("/api/auth/me")
+      .then((res) => { if (res.data?.user) setUser(res.data.user); })
       .catch(() => {});
   }, []);
 

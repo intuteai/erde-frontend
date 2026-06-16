@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
+import axios from "axios";
 
 /* ============================================================
    COLUMN DEFINITIONS  (single source of truth — mirrors backend)
@@ -317,13 +318,8 @@ export default function DatabaseLogs() {
       const params = new URLSearchParams({ date: selectedDate });
       if (!reset && cursor) params.set("cursor", cursor);
 
-      const res = await fetch(`/api/database-logs/${vehicleId}?${params}`, {
-        credentials: "include",
-      });
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const newRows = await res.json();
+      const res = await axios.get(`/api/database-logs/${vehicleId}?${params}`);
+      const newRows = res.data;
       if (!Array.isArray(newRows) || newRows.length === 0) {
         setHasMore(false);
         if (reset) setRows([]);
@@ -333,7 +329,7 @@ export default function DatabaseLogs() {
       setRows(prev => reset ? newRows : [...prev, ...newRows]);
       setCursor(newRows[newRows.length - 1].recorded_at_raw);
 
-      const more = res.headers.get("X-Has-More");
+      const more = res.headers["x-has-more"];
       setHasMore(more === "true" || (!more && newRows.length === 200));
     } catch (err) {
       console.error("Fetch error:", err);
@@ -379,6 +375,9 @@ export default function DatabaseLogs() {
         .filter(c => c.alwaysVisible || selectedCols.has(c.key))
         .map(c => c.key);
       exportParams.set("columns", JSON.stringify(colsToExport));
+
+      // Ensure access_token is fresh before streaming export (fetch bypasses the interceptor)
+      await axios.get("/api/auth/me");
 
       // Start export directly — eliminates the count pre-fetch round-trip.
       // X-Total-Rows header provides the row count; empty range returns HTTP 400.

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useParams } from "react-router-dom";
+import axios from "axios";
 
 /* ========================= PAGE ========================= */
 export default function DatabaseModuleExport() {
@@ -56,6 +57,9 @@ export default function DatabaseModuleExport() {
 
     try {
       const query = buildQuery();
+
+      // Ensure access_token is fresh before streaming export (fetch bypasses the interceptor)
+      await axios.get("/api/auth/me");
 
       // Start export directly — no count pre-fetch round-trip.
       // X-Total-Rows header provides the row count; empty range returns HTTP 400.

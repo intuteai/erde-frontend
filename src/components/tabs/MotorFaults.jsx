@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import axios from "axios";
 
 /* ========================= TIMESTAMP HELPER ========================= */
 function toIST(dateInput) {
@@ -36,11 +37,7 @@ export default function MotorFaults() {
           ? `/api/faults/${id}?date=${selectedDate}`
           : `/api/faults/${id}?days=30`;
 
-        const res = await fetch(url, { credentials: "include" });
-
-        if (!res.ok) throw new Error("Failed to load faults");
-
-        const rows = await res.json();
+        const { data: rows } = await axios.get(url);
         setLogs(rows || []);
       } catch (err) {
         setError(err.message);

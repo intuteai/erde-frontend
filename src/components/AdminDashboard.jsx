@@ -13,12 +13,6 @@ import axios from "axios";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 const PAGE_SIZE = 10;
 
-const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 30000,
-  withCredentials: true,
-  headers: { "Content-Type": "application/json" },
-});
 
 const columns = [
   { key: "index",        label: "S.No",        sortable: false },
@@ -88,7 +82,7 @@ export default function AdminDashboard() {
 
     try {
       // Step 1: always fetch base summary (status, vehicle info, all-time totals)
-      const summaryRes = await apiClient.get("/api/vehicle-master/admin-summary");
+      const summaryRes = await axios.get("/api/vehicle-master/admin-summary", { timeout: 30000 });
 
       let baseRows = summaryRes.data.map((row) => ({
         vehicle_master_id: row.vehicle_master_id,
@@ -117,7 +111,7 @@ export default function AdminDashboard() {
             ? "mode=today"
             : `from=${fromDate}&to=${toDate}`;
 
-        const batchRes = await apiClient.get(`/api/vehicles/analytics/batch?${params}`);
+        const batchRes = await axios.get(`/api/vehicles/analytics/batch?${params}`, { timeout: 30000 });
 
         // batchRes.data is { [vehicle_master_id]: { running_hours, kwh_consumed, avg_kwh } }
         const analyticsMap = batchRes.data;

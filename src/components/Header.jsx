@@ -15,6 +15,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 import erdeLogo from "../assets/ERDE_HorizontalLogo_PNG.png";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
@@ -89,33 +90,23 @@ function Header({ user, onLogout }) {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/user/change-password`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          current_password: currentPassword,
-          new_password: newPassword,
-          confirm_password: confirmPassword,
-        }),
+      await axios.post(`${API_BASE_URL}/api/user/change-password`, {
+        current_password: currentPassword,
+        new_password: newPassword,
+        confirm_password: confirmPassword,
       });
 
-      const data = await res.json();
-
-      if (res.ok) {
-        setMessage({ text: "Password changed successfully!", type: "success" });
-        setTimeout(() => {
-          setShowProfileModal(false);
-          setCurrentPassword("");
-          setNewPassword("");
-          setConfirmPassword("");
-          setMessage({ text: "", type: "" });
-        }, 2000);
-      } else {
-        setMessage({ text: data.error || "Failed to change password", type: "error" });
-      }
+      setMessage({ text: "Password changed successfully!", type: "success" });
+      setTimeout(() => {
+        setShowProfileModal(false);
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+        setMessage({ text: "", type: "" });
+      }, 2000);
     } catch (err) {
-      setMessage({ text: "Network error. Please try again.", type: "error" });
+      const message = err.response?.data?.error || "Failed to change password";
+      setMessage({ text: message, type: "error" });
     } finally {
       setLoading(false);
     }

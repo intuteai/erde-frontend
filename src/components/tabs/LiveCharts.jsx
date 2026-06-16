@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
+import axios from "axios";
 import {
   AreaChart,
   Area,
@@ -590,12 +591,8 @@ function ActivityTimeline({ vehicleId }) {
     setError(null);
     setData(null);
     try {
-      const res = await fetch(
-        `/api/vehicles/${vehicleId}/activity?date=${date}`,
-        { credentials: "include" }
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setData(await res.json());
+      const { data: activityData } = await axios.get(`/api/vehicles/${vehicleId}/activity?date=${date}`);
+      setData(activityData);
     } catch (err) {
       console.error("[ActivityTimeline] fetch failed:", err.message);
       setError("Failed to load activity data");
@@ -947,11 +944,7 @@ export default function LiveCharts() {
 
     (async () => {
       try {
-        const res = await fetch(`/api/vehicles/${id}/timeseries?minutes=5`, {
-          credentials: "include",
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const rows = await res.json();
+        const { data: rows } = await axios.get(`/api/vehicles/${id}/timeseries?minutes=5`);
 
         if (Array.isArray(rows) && rows.length > 0) {
           const sorted = [...rows].sort(
@@ -995,7 +988,10 @@ export default function LiveCharts() {
         console.error("[LiveCharts] SSE parse error:", e);
       }
     };
-    es.onerror = () => setError("Live stream lost – showing last known data");
+    es.onerror = () => {
+      setError("Live stream lost – showing last known data");
+      axios.get("/api/auth/me").catch(() => {});
+    };
     es.onopen  = () => setError(null);
 
     return () => { if (esRef.current) { esRef.current.close(); esRef.current = null; } };

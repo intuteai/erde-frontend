@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import axios from "axios";
 
 /* ========================= MOTOR ANALYTICS ========================= */
 export default function MotorAnalytics() {
@@ -20,11 +21,7 @@ export default function MotorAnalytics() {
           ? `/api/motor/analytics/${id}?date=${selectedDate}`
           : `/api/motor/analytics/${id}?days=30`;
 
-        const res = await fetch(url, { credentials: "include" });
-
-        if (!res.ok) throw new Error("Failed to load motor analytics");
-
-        const rows = await res.json();
+        const { data: rows } = await axios.get(url);
         setData(rows || []);
       } catch (err) {
         setError(err.message);
