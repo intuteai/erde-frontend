@@ -33,6 +33,7 @@ export default function LoginModal({ onClose, onAuth }) {
         {
           headers: { "Content-Type": "application/json" },
           withCredentials: true,
+          _retry: true,
         }
       );
 
