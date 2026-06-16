@@ -55,13 +55,32 @@ function App() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // On mount: check if a valid session cookie exists
+  // On mount: check session, silently refresh if access_token is missing/expired
   useEffect(() => {
-    axios
-      .get(`${API_BASE_URL}/api/auth/me`)
-      .then((res) => setUser(res.data.user))
-      .catch(() => setUser(null))
-      .finally(() => setAuthLoading(false));
+    const checkAuth = async () => {
+      try {
+        const res = await axios.get(`${API_BASE_URL}/api/auth/me`, { _retry: true });
+        setUser(res.data.user);
+      } catch (err) {
+        if (err.response?.status === 401) {
+          try {
+            await axios.post(`${API_BASE_URL}/api/auth/refresh`, {}, {
+              withCredentials: true,
+              _retry: true,
+            });
+            const res = await axios.get(`${API_BASE_URL}/api/auth/me`, { _retry: true });
+            setUser(res.data.user);
+          } catch {
+            setUser(null);
+          }
+        } else {
+          setUser(null);
+        }
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+    checkAuth();
   }, []);
 
   // Listen for login events dispatched by LoginModal
@@ -104,35 +123,35 @@ function App() {
       async (error) => {
         const originalRequest = error.config;
 
-        if (error.response?.status === 401 && !originalRequest._retry) {
-          if (isRefreshing) {
-            return new Promise((resolve, reject) => {
-              failedQueue.push({ resolve, reject });
-            }).then(() => axios(originalRequest));
-          }
-
-          originalRequest._retry = true;
-          isRefreshing = true;
-
-          try {
-            await axios.post(
-              `${API_BASE_URL}/api/auth/refresh`,
-              {},
-              { withCredentials: true, _retry: true }
-            );
-            processQueue(null);
-            return axios(originalRequest);
-          } catch (refreshErr) {
-            processQueue(refreshErr);
-            setUser(null);
-            navigate("/", { replace: true });
-            return Promise.reject(refreshErr);
-          } finally {
-            isRefreshing = false;
-          }
+        if (!originalRequest || error.response?.status !== 401 || originalRequest._retry) {
+          return Promise.reject(error);
         }
 
-        return Promise.reject(error);
+        if (isRefreshing) {
+          return new Promise((resolve, reject) => {
+            failedQueue.push({ resolve, reject });
+          }).then(() => axios(originalRequest));
+        }
+
+        originalRequest._retry = true;
+        isRefreshing = true;
+
+        try {
+          await axios.post(
+            `${API_BASE_URL}/api/auth/refresh`,
+            {},
+            { withCredentials: true, _retry: true }
+          );
+          processQueue(null);
+          return axios(originalRequest);
+        } catch (refreshErr) {
+          processQueue(refreshErr);
+          setUser(null);
+          navigate("/", { replace: true });
+          return Promise.reject(refreshErr);
+        } finally {
+          isRefreshing = false;
+        }
       }
     );
 
