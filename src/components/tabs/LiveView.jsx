@@ -546,7 +546,7 @@ export default function LiveView() {
           <Section title="Alarms & Warnings">
             {Object.entries(live)
               .filter(([key]) => key.startsWith("alarms_"))
-              .sort(([a], [b]) => a.localeCompare(b))
+              .sort(([a, aVal], [b, bVal]) => (!!bVal - !!aVal) || a.localeCompare(b))
               .map(([key, value]) => (
                 <div key={key} className="flex justify-between items-center bg-gray-800/40 px-3 py-2 rounded-md text-sm border border-orange-500/20">
                   <span className="text-gray-300 capitalize">{key.replace("alarms_", "").replace(/_/g, " ")}</span>

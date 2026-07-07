@@ -130,7 +130,10 @@ export default function AdminDashboard() {
 
       setRows(baseRows);
     } catch (err) {
-      console.error("Admin dashboard fetch failed:", err);
+      if (err.response?.status === 401) {
+        // Interceptor handles token refresh and logout — don't show a misleading error
+        return;
+      }
       setError("Failed to load fleet data. Please try again.");
       setRows([]);
     } finally {
