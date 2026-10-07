@@ -7,8 +7,8 @@ import { useNavigate } from "react-router-dom";
 import erdeLogo from "../assets/ERDE_HorizontalLogo_PNG.png";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-/** @param {{ onClose?: () => void, onAuth?: (payload: { user: any }) => void }} props */
-export default function LoginModal({ onClose, onAuth }) {
+/** @param {{ onClose?: () => void, onAuth?: (payload: { user: any }) => void, serverUnreachable?: boolean }} props */
+export default function LoginModal({ onClose, onAuth, serverUnreachable }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -161,6 +161,15 @@ export default function LoginModal({ onClose, onAuth }) {
                 className="h-8 md:h-10 lg:h-12 w-auto mx-auto object-contain"
               />
             </div>
+
+            {serverUnreachable && (
+              <div className="mb-6 p-4 bg-amber-900/30 border border-amber-500/50 rounded-xl flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-400" />
+                <span className="text-amber-300 text-sm">
+                  Can't reach the server right now. Check your connection and try again.
+                </span>
+              </div>
+            )}
 
             {error && (
               <div className="mb-6 p-4 bg-red-900/30 border border-red-500/50 rounded-xl flex items-center gap-3">

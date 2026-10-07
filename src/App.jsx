@@ -24,6 +24,7 @@ import CustomerSplash from "./components/CustomerSplash";
 // Vehicle
 import VehicleDetails from "./components/VehicleDetails";
 import VehicleLiveTrack from "./components/VehicleLiveTrack"; // ✅ NEW
+import FleetMap from "./components/FleetMap";
 
 // Masters
 import CustomerMaster from "./components/masters/CustomerMaster";
@@ -51,6 +52,7 @@ function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [serverUnreachable, setServerUnreachable] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -61,8 +63,17 @@ function App() {
       try {
         const res = await axios.get(`${API_BASE_URL}/api/auth/me`, { _retry: true });
         setUser(res.data.user);
+        setServerUnreachable(false);
       } catch (err) {
-        if (err.response?.status === 401) {
+        // No `err.response` at all means the request never got a reply from
+        // the server (down, unreachable, DNS/connection failure) — distinct
+        // from a real 401, which means the server IS up and says "not
+        // logged in". Conflating the two used to silently show the login
+        // screen for both, indistinguishable from a real session expiry.
+        if (!err.response) {
+          setUser(null);
+          setServerUnreachable(true);
+        } else if (err.response.status === 401) {
           try {
             await axios.post(`${API_BASE_URL}/api/auth/refresh`, {}, {
               withCredentials: true,
@@ -70,11 +81,14 @@ function App() {
             });
             const res = await axios.get(`${API_BASE_URL}/api/auth/me`, { _retry: true });
             setUser(res.data.user);
-          } catch {
+            setServerUnreachable(false);
+          } catch (refreshErr) {
             setUser(null);
+            setServerUnreachable(!refreshErr.response);
           }
         } else {
           setUser(null);
+          setServerUnreachable(false);
         }
       } finally {
         setAuthLoading(false);
@@ -206,7 +220,7 @@ function App() {
             path="/"
             element={
               showLogin || !user ? (
-                <LoginModal setShowLogin={setShowLogin} />
+                <LoginModal setShowLogin={setShowLogin} serverUnreachable={serverUnreachable} />
               ) : (
                 <Navigate
                   to={user.role === "admin" ? "/admin/splash" : "/dashboard"}
@@ -273,6 +287,16 @@ function App() {
             element={
               <ProtectedLayout>
                 <VehicleLiveTrack />
+              </ProtectedLayout>
+            }
+          />
+
+          {/* Fleet Map (NEW) */}
+          <Route
+            path="/fleet/map"
+            element={
+              <ProtectedLayout>
+                <FleetMap />
               </ProtectedLayout>
             }
           />

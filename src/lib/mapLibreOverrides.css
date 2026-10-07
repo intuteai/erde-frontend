@@ -1,0 +1,24 @@
+/* Shared between VehicleLiveTrack.jsx and FleetMap.jsx.
+   Attribution is disabled via `attributionControl: false` in
+   useMapLibreMap.js, so unlike the old Leaflet setup there's no
+   attribution-control rule needed here — just keeping the map below any
+   fixed app chrome (header, etc). */
+.maplibregl-map {
+  z-index: 1;
+}
+
+/* MapLibre's popup content doesn't set its own text colour, so it inherits
+   this app's global text-white styling — rendering white text on the
+   popup's own white background, invisible. Force it back to a dark colour. */
+.maplibregl-popup-content {
+  color: #1f2937;
+}
+
+/* Offsets the zoom control down below VehicleLiveTrack.jsx's top-left
+   vehicle-identity card, which would otherwise overlap it — the identity
+   card is roughly 56-64px tall depending on whether the make/model line
+   renders. Harmless on FleetMap.jsx, whose top-left corner is otherwise
+   empty; it just sits a bit lower than the true corner there too. */
+.maplibregl-ctrl-top-left {
+  top: 76px;
+}

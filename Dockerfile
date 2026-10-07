@@ -22,11 +22,20 @@ RUN npm run build
 FROM node:20-bookworm-slim AS runner
 WORKDIR /app
 
+# Non-root user — this stage only serves static files, no reason to run as root.
+RUN groupadd -r nodegrp && useradd -r -g nodegrp nodeusr
+
 # Lightweight static server
 RUN npm i -g serve
 
 # Copy built assets only
 COPY --from=build /app/dist /app/dist
+RUN chown -R nodeusr:nodegrp /app/dist
 
 EXPOSE 8080
+USER nodeusr
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:8080/', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"
+
 CMD ["serve", "-s", "dist", "-l", "8080"]
