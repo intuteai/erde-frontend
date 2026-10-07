@@ -15,10 +15,9 @@
     "bootstrap": "^5.3.3",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.3",
-    "leaflet": "^1.9.4",
-    "leaflet.marker.slideto": "^0.3.0",
     "lodash": "^4.17.21",
     "lucide-react": "^0.477.0",
+    "maplibre-gl": "^4.7.1",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -27,8 +26,6 @@
     "react-toastify": "^11.0.5",
     "recharts": "^3.2.0",
     "serve": "^14.2.4",
-    "socket.io-client": "^4.8.1",
-    "websocket": "^1.0.35",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
