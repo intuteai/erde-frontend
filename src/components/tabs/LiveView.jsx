@@ -279,6 +279,11 @@ export default function LiveView() {
           <Item name="Status Word"       value={live.motor_status_word ?? "–"} />
           <Item name="Frequency Raw"     value={live.motor_freq_raw ?? "–"} />
           <Item name="Total Wattage"     value={<Val v={live.motor_total_wattage_w} unit="W" fixed={0} />} />
+
+          {/* Oil Motor (MCU2) — kept inside this card so the 2-column grid pairing is unchanged */}
+          <Divider label="Oil Motor (MCU2)" />
+          <Item name="Oil Motor Speed"       value={<Val v={live.oil_motor_speed_rpm} fixed={0} unit=" RPM" />} />
+          <Item name="Oil Motor Temperature" value={<Val v={live.oil_motor_temp_c}    unit="°C" />} />
         </Section>
 
         {/* ── Peripherals ──────────────────────────────────────────────────── */}
