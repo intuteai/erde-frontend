@@ -223,7 +223,7 @@ export default function CustomerMaster() {
         </div>
 
         {/* TABLE */}
-        <div className="rounded-2xl border border-orange-500/30 bg-gray-800/50 overflow-hidden">
+        <div className="rounded-2xl border border-orange-500/30 bg-gray-800/50 overflow-x-auto">
           <table className="w-full">
             <thead className="bg-black/50 text-orange-200">
               <tr>

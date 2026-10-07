@@ -235,7 +235,7 @@ export default function VehicleTypeMaster() {
 
         {/* Table */}
         {!loading && (
-          <div className="bg-gray-800/50 rounded-2xl border border-orange-500/30 overflow-hidden">
+          <div className="bg-gray-800/50 rounded-2xl border border-orange-500/30 overflow-x-auto">
             <div className="max-h-[500px] overflow-y-auto">
               <table className="w-full">
                 <thead className="bg-black/60 sticky top-0 z-10">

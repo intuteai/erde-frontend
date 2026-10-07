@@ -7,6 +7,7 @@ import {
   Loader2,
   AlertCircle,
   MapPin,
+  Map as MapIcon,
 } from "lucide-react";
 import axios from "axios";
 
@@ -244,6 +245,10 @@ export default function AdminDashboard() {
     [navigate]
   );
 
+  const goToFleetMap = useCallback(() => {
+    navigate("/fleet/map");
+  }, [navigate]);
+
   /* ── Render ──────────────────────────────────────────────── */
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-950 to-black text-white px-6 py-12">
@@ -330,6 +335,15 @@ export default function AdminDashboard() {
                 </div>
               </div>
             )}
+
+            {/* Fleet Map */}
+            <button
+              onClick={goToFleetMap}
+              className="flex items-center justify-center gap-3 px-6 py-3 rounded-xl bg-gray-800/60 border border-orange-500/30 hover:bg-gray-800 transition font-medium"
+            >
+              <MapIcon className="w-5 h-5" />
+              Fleet Map
+            </button>
 
             {/* Refresh */}
             <button

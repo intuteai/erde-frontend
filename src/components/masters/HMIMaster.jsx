@@ -208,7 +208,7 @@ export default function HMIMaster() {
         )}
 
         {/* Table */}
-        <div className="bg-gray-800/50 rounded-2xl border border-orange-500/30 overflow-hidden">
+        <div className="bg-gray-800/50 rounded-2xl border border-orange-500/30 overflow-x-auto">
           <table className="w-full">
             <thead className="bg-black/50">
               <tr>

@@ -136,7 +136,7 @@ function Header({ user, onLogout }) {
           </div>
 
           <div className="ml-auto flex items-center gap-6">
-            <div className="text-right">
+            <div className="hidden sm:block text-right">
               <p className="text-sm font-semibold text-orange-300">{user.name}</p>
               <p className="text-xs text-orange-200/70">{user.email}</p>
             </div>

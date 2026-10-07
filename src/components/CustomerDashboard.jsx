@@ -8,6 +8,7 @@ import {
   Loader2,
   AlertCircle,
   MapPin,
+  Map,
 } from "lucide-react";
 import axios from "axios";
 
@@ -71,6 +72,8 @@ export default function CustomerDashboard() {
   const [page, setPage] = useState(1);
 
   const navigate = useNavigate();
+
+  const goToFleetMap = () => navigate("/fleet/map");
 
   /* =========================
      FETCH CUSTOMER VEHICLES
@@ -222,6 +225,14 @@ export default function CustomerDashboard() {
               className="w-full pl-12 pr-6 py-4 rounded-2xl bg-gray-800/50 border border-orange-500/30 focus:border-orange-500 focus:outline-none text-white placeholder-orange-300/50 transition"
             />
           </div>
+
+          <button
+            onClick={goToFleetMap}
+            className="flex items-center justify-center gap-3 px-8 py-4 rounded-2xl bg-gray-800/60 border border-orange-500/30 hover:bg-gray-800 transition font-medium"
+          >
+            <Map className="w-5 h-5" />
+            Fleet Map
+          </button>
 
           <button
             onClick={onRefresh}
