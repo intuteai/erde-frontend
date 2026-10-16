@@ -62,6 +62,10 @@ const COLUMNS = [
   // Oil Motor (MCU2)
   { key: "oil_motor_speed_rpm",            label: "Oil Motor Speed (RPM)" },
   { key: "oil_motor_temp_c",               label: "Oil Motor Temperature (°C)" },
+  { key: "oil_motor_torque_nm",            label: "Oil Motor Torque (N·m)" },
+  { key: "oil_motor_ac_current_a",         label: "Oil Motor Current (A)" },
+  { key: "oil_motor_mcu_temp_c",           label: "Oil Motor MCU Temperature (°C)" },
+  { key: "oil_motor_radiator_temp_c",      label: "Oil Motor Radiator Temperature (°C)" },
   // BTMS
   { key: "btms_command_mode",              label: "BTMS Command Mode" },
   { key: "btms_status_mode",               label: "BTMS Status Mode" },
@@ -178,7 +182,10 @@ const COLUMN_GROUPS = [
   },
   {
     label: "Oil Motor (MCU2)",
-    keys: ["oil_motor_speed_rpm","oil_motor_temp_c"],
+    keys: [
+      "oil_motor_speed_rpm","oil_motor_temp_c","oil_motor_torque_nm",
+      "oil_motor_ac_current_a","oil_motor_mcu_temp_c","oil_motor_radiator_temp_c",
+    ],
   },
   {
     label: "BTMS",
