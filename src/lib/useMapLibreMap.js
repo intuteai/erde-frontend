@@ -51,7 +51,15 @@ const MAP_STYLES = {
   },
 };
 
-const LOAD_TIMEOUT_MS = 8_000;
+// A real client on a slow on-site connection (exactly the "rural/industrial
+// site" case noted below) reported the map stuck permanently on "Having
+// trouble loading the map. Retrying…" — confirmed as a genuinely slow
+// connection, not an outage (tile providers and app code were both healthy).
+// At 8s, the retry loop was tearing down and restarting the load before a
+// slow-but-working fetch of the style/tiles/glyphs could ever finish,
+// so it never got a real chance to succeed. 30s gives a slow connection
+// room to actually complete instead of being perpetually restarted.
+const LOAD_TIMEOUT_MS = 30_000;
 const RETRY_DELAY_MS = 5_000;
 
 // MapLibre has no "style.load" event (a plausible-sounding name that does
