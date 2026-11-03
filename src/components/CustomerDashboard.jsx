@@ -1,19 +1,20 @@
 // src/pages/customer/CustomerDashboard.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowUpDown,
   Search,
-  RefreshCcw,
   Loader2,
   AlertCircle,
   MapPin,
   Map,
 } from "lucide-react";
 import axios from "axios";
+import { useEventSourceWithBackoff } from "../lib/useEventSourceWithBackoff";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 const PAGE_SIZE = 10;
+const RETRY_DELAY_MS = 5000;
 
 /* =========================
    STATUS PILL COMPONENT
@@ -85,6 +86,7 @@ export default function CustomerDashboard() {
     try {
       const res = await axios.get(`${API_BASE_URL}/api/vehicle-master/my`, {
         withCredentials: true,
+        timeout: 30000,
       });
 
       const formatted = (res.data || []).map((row) => ({
@@ -102,8 +104,11 @@ export default function CustomerDashboard() {
       setRows(formatted);
     } catch (err) {
       console.error("CustomerDashboard fetch error:", err);
-      setError("Failed to load your vehicles.");
+      setError("Failed to load your vehicles. Retrying…");
       setRows([]);
+      // No manual refresh button exists anymore — a failed load must
+      // self-heal instead of permanently stranding the user.
+      setTimeout(fetchData, RETRY_DELAY_MS);
     } finally {
       setLoading(false);
     }
@@ -113,11 +118,53 @@ export default function CustomerDashboard() {
     fetchData();
   }, []);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await fetchData();
-    setRefreshing(false);
-  };
+  /* ── Live updates (SSE) ──────────────────────────────────────
+     Keeps status/hours/kWh current without a manual refresh, same
+     architecture as Fleet Map's live stream. Merges into existing rows
+     by vehicle_master_id — harmless no-op for a row not yet loaded. */
+  const handleStreamMessage = useCallback((e) => {
+    try {
+      const update = JSON.parse(e.data);
+
+      // The vehicle SET changed (one added/removed elsewhere) — no per-row
+      // patch can represent that, so get a complete, correct dataset via a
+      // normal fetch instead, routed through the refreshing-gated path so
+      // it doesn't flash the full-table loading spinner.
+      if (update.type === "refetch") {
+        setRefreshing(true);
+        fetchData().finally(() => setRefreshing(false));
+        return;
+      }
+
+      setRows((prev) =>
+        prev.map((row) =>
+          row.id !== update.vehicle_master_id
+            ? row
+            : {
+                ...row,
+                totalHours: update.total_hours ?? "—",
+                totalKwh: update.total_kwh ?? "—",
+                avgKwh: update.avg_kwh ?? "—",
+                status: update.status || "offline",
+              }
+        )
+      );
+    } catch {
+      // Malformed SSE payload — ignore; the next poll cycle resends correctly.
+    }
+    // fetchData is deliberately omitted — it's a plain (non-memoized)
+    // function that only reads the constant API_BASE_URL and calls stable
+    // setState setters, so it never goes stale across renders; adding it
+    // here would just churn this callback's identity for no behavioral
+    // difference (useEventSourceWithBackoff reads onMessage via a ref
+    // anyway, so that churn wouldn't even reconnect the stream).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const sseStatus = useEventSourceWithBackoff(
+    `${API_BASE_URL}/api/vehicle-master/my/stream`,
+    handleStreamMessage
+  );
 
   /* =========================
      SORT HANDLER
@@ -155,9 +202,21 @@ export default function CustomerDashboard() {
         let valA = a[sort.key];
         let valB = b[sort.key];
 
+        // Missing values always sink to the bottom, regardless of sort
+        // direction — matches AdminDashboard's rule. The previous
+        // -Infinity approach here made missing rows jump to the TOP in
+        // ascending order instead, which reads as broken data rather
+        // than intentional ordering.
+        const aMissing = valA == null || valA === "—";
+        const bMissing = valB == null || valB === "—";
+        if (aMissing || bMissing) {
+          if (aMissing && bMissing) return 0;
+          return aMissing ? 1 : -1;
+        }
+
         if (["totalHours", "totalKwh", "avgKwh"].includes(sort.key)) {
-          valA = valA === "—" ? -Infinity : Number(valA);
-          valB = valB === "—" ? -Infinity : Number(valB);
+          valA = Number(valA);
+          valB = Number(valB);
         } else if (sort.key === "status") {
           const order = { online: 0, idle: 1, offline: 2 };
           valA = order[valA] ?? 3;
@@ -233,19 +292,6 @@ export default function CustomerDashboard() {
             <Map className="w-5 h-5" />
             Fleet Map
           </button>
-
-          <button
-            onClick={onRefresh}
-            disabled={refreshing || loading}
-            className="flex items-center justify-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 disabled:opacity-70 transition font-medium"
-          >
-            {refreshing ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <RefreshCcw className="w-5 h-5" />
-            )}
-            Refresh Data
-          </button>
         </div>
 
         {/* Error Alert */}
@@ -254,6 +300,22 @@ export default function CustomerDashboard() {
             <AlertCircle className="w-6 h-6 text-red-400 flex-shrink-0" />
             <span className="text-red-200">{error}</span>
           </div>
+        )}
+
+        {(sseStatus === "open" || sseStatus === "reconnecting") && (
+          <p className="text-sm mb-4">
+            {sseStatus === "open" ? (
+              <span className="inline-flex items-center gap-1.5 text-green-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                Live
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-yellow-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+                Reconnecting…
+              </span>
+            )}
+          </p>
         )}
 
         {/* Table */}
@@ -292,7 +354,7 @@ export default function CustomerDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-orange-500/10">
-                {loading ? (
+                {loading && !refreshing ? (
                   <tr>
                     <td colSpan={columns.length} className="py-16 text-center">
                       <Loader2 className="w-12 h-12 animate-spin mx-auto text-orange-400" />
@@ -310,7 +372,16 @@ export default function CustomerDashboard() {
                     <tr
                       key={row.id}
                       onClick={() => handleRowClick(row)}
-                      className="hover:bg-orange-500/5 transition cursor-pointer group"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleRowClick(row);
+                        }
+                      }}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`Open ${row.vehicleNo} details`}
+                      className="hover:bg-orange-500/5 transition cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-inset"
                     >
                       {/* S.No matches Admin Dashboard: global across pages */}
                       <td className="px-6 py-5 text-sm">

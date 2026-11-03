@@ -1,18 +1,19 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowUpDown,
   Search,
-  RefreshCcw,
   Loader2,
   AlertCircle,
   MapPin,
   Map as MapIcon,
 } from "lucide-react";
 import axios from "axios";
+import { useEventSourceWithBackoff } from "../lib/useEventSourceWithBackoff";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 const PAGE_SIZE = 10;
+const RETRY_DELAY_MS = 5000;
 
 
 const columns = [
@@ -77,13 +78,32 @@ export default function AdminDashboard() {
   const [toDate,        setToDate]        = useState("");
 
   /* ── Fetch ───────────────────────────────────────────────── */
+  // Identifies the most recently-dispatched fetchData call. Rapid mode
+  // switching (All Time / Today / Date Range) fires overlapping requests
+  // that can resolve out of order — without this guard, a stale response
+  // from an earlier switch can land AFTER a newer one already rendered,
+  // silently overwriting correct data with data for a period the user
+  // already navigated away from (confirmed live: switching Today -> All
+  // Time before the Today request resolved left the UI showing "All Time"
+  // while displaying that vehicle's Today hours instead of its real
+  // all-time total).
+  const fetchGenerationRef = useRef(0);
+  // Always points at the current fetchData closure (correct analyticsMode/
+  // fromDate/toDate), so a delayed auto-retry — scheduled from whatever
+  // closure was active when the request failed — still re-fetches with
+  // whatever the user is actually viewing now, not stale deps from the
+  // moment of failure.
+  const fetchDataRef = useRef(null);
+
   const fetchData = useCallback(async () => {
+    const myGeneration = ++fetchGenerationRef.current;
     setError("");
     setLoading(true);
 
     try {
       // Step 1: always fetch base summary (status, vehicle info, all-time totals)
       const summaryRes = await axios.get("/api/vehicle-master/admin-summary", { timeout: 30000 });
+      if (myGeneration !== fetchGenerationRef.current) return; // superseded by a newer call
 
       let baseRows = summaryRes.data.map((row) => ({
         vehicle_master_id: row.vehicle_master_id,
@@ -105,42 +125,126 @@ export default function AdminDashboard() {
         return;
       }
 
-      // Step 3: for today/custom — ONE batch request replaces N per-vehicle requests
+      // Step 3: for today/custom — ONE batch request replaces N per-vehicle requests.
+      // This has its own try/catch: a failure here must not discard the
+      // already-successful base data from Step 1 — it degrades to showing
+      // vehicle info without period-specific hours, not an empty table.
       if (analyticsMode !== "all") {
         const params =
           analyticsMode === "today"
             ? "mode=today"
             : `from=${fromDate}&to=${toDate}`;
 
-        const batchRes = await axios.get(`/api/vehicles/analytics/batch?${params}`, { timeout: 30000 });
+        try {
+          const batchRes = await axios.get(`/api/vehicles/analytics/batch?${params}`, { timeout: 30000 });
+          if (myGeneration !== fetchGenerationRef.current) return; // superseded by a newer call
 
-        // batchRes.data is { [vehicle_master_id]: { running_hours, kwh_consumed, avg_kwh } }
-        const analyticsMap = batchRes.data;
+          // batchRes.data is { [vehicle_master_id]: { running_hours, kwh_consumed, avg_kwh } }
+          const analyticsMap = batchRes.data;
 
-        baseRows = baseRows.map((row) => {
-          const a = analyticsMap[row.vehicle_master_id];
-          if (!a) return row;
-          return {
+          baseRows = baseRows.map((row) => {
+            const a = analyticsMap[row.vehicle_master_id];
+            if (!a) return row;
+            return {
+              ...row,
+              total_hours: a.running_hours ?? "—",
+              total_kwh:   a.kwh_consumed  ?? "—",
+              avg_kwh:     a.avg_kwh       ?? "—",
+            };
+          });
+        } catch (batchErr) {
+          if (myGeneration !== fetchGenerationRef.current) return; // superseded by a newer call
+          if (batchErr.response?.status !== 401) {
+            setError("Couldn't load data for the selected period — showing vehicle list only.");
+          }
+          // Period-specific hours/kWh are unknown (not "all-time", which
+          // would be misleading under a Today/Date Range label) — blank
+          // them explicitly rather than leaving Step 1's all-time values.
+          baseRows = baseRows.map((row) => ({
             ...row,
-            total_hours: a.running_hours ?? "—",
-            total_kwh:   a.kwh_consumed  ?? "—",
-            avg_kwh:     a.avg_kwh       ?? "—",
-          };
-        });
+            total_hours: "—",
+            total_kwh:   "—",
+            avg_kwh:     "—",
+          }));
+        }
       }
 
+      if (myGeneration !== fetchGenerationRef.current) return; // superseded by a newer call
       setRows(baseRows);
     } catch (err) {
+      if (myGeneration !== fetchGenerationRef.current) return; // superseded by a newer call
       if (err.response?.status === 401) {
         // Interceptor handles token refresh and logout — don't show a misleading error
         return;
       }
-      setError("Failed to load fleet data. Please try again.");
+      setError("Failed to load fleet data. Retrying…");
       setRows([]);
+      // No manual refresh button exists anymore — a failed load must
+      // self-heal instead of permanently stranding the user. Guarded by
+      // the generation check at fire time so a stale retry (e.g. the user
+      // already switched mode, or a newer attempt already succeeded)
+      // correctly no-ops instead of overwriting fresher state.
+      setTimeout(() => {
+        if (myGeneration === fetchGenerationRef.current) fetchDataRef.current?.();
+      }, RETRY_DELAY_MS);
     } finally {
-      setLoading(false);
+      if (myGeneration === fetchGenerationRef.current) {
+        setLoading(false);
+      }
     }
   }, [analyticsMode, fromDate, toDate]);
+
+  fetchDataRef.current = fetchData;
+
+  /* ── Live updates (SSE) ──────────────────────────────────────
+     Keeps status/hours/kWh current without a manual refresh, same
+     architecture as Fleet Map's live stream. Merges into existing rows
+     by vehicle_master_id — harmless no-op for a row not yet loaded. */
+  const handleSummaryStreamMessage = useCallback(
+    (e) => {
+      try {
+        const update = JSON.parse(e.data);
+
+        // The vehicle SET changed (one added/removed elsewhere) — no
+        // per-row patch can represent that, so get a complete, correct
+        // dataset via a normal fetch instead. Routed through the same
+        // refreshing-gated path a manual refresh used to use, so this
+        // doesn't flash the full-table loading spinner.
+        if (update.type === "refetch") {
+          setRefreshing(true);
+          fetchDataRef.current?.().finally(() => setRefreshing(false));
+          return;
+        }
+
+        setRows((prev) =>
+          prev.map((row) => {
+            if (row.vehicle_master_id !== update.vehicle_master_id) return row;
+            const next = { ...row, status: update.status || "offline" };
+            // This stream always carries ALL-TIME totals — only apply
+            // hours/kWh while actually viewing "All Time". Applying them
+            // under "Today"/"Date Range" would silently overwrite the
+            // correct period-specific numbers on screen with the wrong
+            // period's data (the same bug class fixed via the request-
+            // ordering guard in fetchData above).
+            if (analyticsMode === "all") {
+              next.total_hours = update.total_hours ?? "—";
+              next.total_kwh = update.total_kwh ?? "—";
+              next.avg_kwh = update.avg_kwh ?? "—";
+            }
+            return next;
+          })
+        );
+      } catch {
+        // Malformed SSE payload — ignore; the next poll cycle resends correctly.
+      }
+    },
+    [analyticsMode]
+  );
+
+  const sseStatus = useEventSourceWithBackoff(
+    `${API_BASE_URL}/api/vehicle-master/admin-summary/stream`,
+    handleSummaryStreamMessage
+  );
 
   /* ── Effects ─────────────────────────────────────────────── */
   useEffect(() => {
@@ -208,11 +312,6 @@ export default function AdminDashboard() {
   }, [rows]);
 
   /* ── Handlers ────────────────────────────────────────────── */
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    fetchData().finally(() => setRefreshing(false));
-  }, [fetchData]);
-
   const onSort = useCallback((key) => {
     if (!columns.find((c) => c.key === key)?.sortable) return;
     setSortConfig((prev) => ({
@@ -339,23 +438,10 @@ export default function AdminDashboard() {
             {/* Fleet Map */}
             <button
               onClick={goToFleetMap}
-              className="flex items-center justify-center gap-3 px-6 py-3 rounded-xl bg-gray-800/60 border border-orange-500/30 hover:bg-gray-800 transition font-medium"
+              className="flex items-center justify-center gap-3 px-6 py-3 rounded-xl bg-gray-800/60 border border-orange-500/30 hover:bg-gray-800 transition font-medium md:ml-auto"
             >
               <MapIcon className="w-5 h-5" />
               Fleet Map
-            </button>
-
-            {/* Refresh */}
-            <button
-              onClick={onRefresh}
-              disabled={refreshing || loading}
-              className="flex items-center justify-center gap-3 px-6 py-3 rounded-xl bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 disabled:opacity-70 transition font-medium shadow-lg shadow-orange-500/20 md:ml-auto"
-            >
-              {refreshing
-                ? <Loader2 className="w-5 h-5 animate-spin" />
-                : <RefreshCcw className="w-5 h-5" />
-              }
-              Refresh
             </button>
           </div>
         </div>
@@ -369,17 +455,31 @@ export default function AdminDashboard() {
         )}
 
         {/* Data range label */}
-        <p className="text-sm text-orange-300/70 mb-4">
-          Showing data for:{" "}
-          <span className="text-orange-300 font-medium">
-            {analyticsMode === "all"
-              ? "All Time"
-              : analyticsMode === "today"
-              ? "Today"
-              : fromDate && toDate
-              ? `${fromDate} → ${toDate}`
-              : "Select date range"}
+        <p className="text-sm text-orange-300/70 mb-4 flex items-center gap-3">
+          <span>
+            Showing data for:{" "}
+            <span className="text-orange-300 font-medium">
+              {analyticsMode === "all"
+                ? "All Time"
+                : analyticsMode === "today"
+                ? "Today"
+                : fromDate && toDate
+                ? `${fromDate} → ${toDate}`
+                : "Select date range"}
+            </span>
           </span>
+          {sseStatus === "open" && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-green-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              Live
+            </span>
+          )}
+          {sseStatus === "reconnecting" && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-yellow-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+              Reconnecting…
+            </span>
+          )}
         </p>
 
         {/* Table */}
@@ -417,7 +517,7 @@ export default function AdminDashboard() {
               </thead>
 
               <tbody className="divide-y divide-orange-500/10">
-                {loading ? (
+                {loading && !refreshing ? (
                   <tr>
                     <td colSpan={columns.length} className="py-16 text-center">
                       <Loader2 className="w-12 h-12 animate-spin mx-auto text-orange-400" />
@@ -438,7 +538,16 @@ export default function AdminDashboard() {
                     <tr
                       key={row.vehicle_master_id}
                       onClick={() => handleRowClick(row)}
-                      className="hover:bg-orange-500/5 transition cursor-pointer group"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleRowClick(row);
+                        }
+                      }}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`Open ${row.vehicle_no} details`}
+                      className="hover:bg-orange-500/5 transition cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-inset"
                     >
                       <td className="px-6 py-5 text-sm font-medium text-orange-300/90">
                         {idToRank.get(row.vehicle_master_id) ?? "—"}
