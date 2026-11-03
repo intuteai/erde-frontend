@@ -116,6 +116,18 @@ export default function AdminDashboard() {
         avg_kwh:           row.avg_kwh     ?? "—",
         status:            row.status      || "offline",
         last_seen:         row.last_seen,
+        // All-time baseline for the live stream's delta math (see
+        // handleSummaryStreamMessage below) — captured here, from Step 1's
+        // admin-summary response, BEFORE Step 3 (if it runs) overwrites
+        // total_hours/total_kwh above with period-specific numbers. Without
+        // this, every mode switch wiped the baseline (a fresh fetchData
+        // call replaces the whole rows array with objects that never had
+        // it), which silently let the very next stream message — including
+        // a garbage one — become the new trusted baseline with no sanity
+        // check at all, since that check only runs when a prior baseline
+        // already exists.
+        _streamHours: row.total_hours ?? null,
+        _streamKwh:   row.total_kwh   ?? null,
       }));
 
       // Step 2: if custom mode but dates incomplete, show base data and stop
@@ -205,6 +217,19 @@ export default function AdminDashboard() {
       try {
         const update = JSON.parse(e.data);
 
+        // "Today" is always still accumulating. A custom Date Range is
+        // only still accumulating if its end date is today-or-later —
+        // once toDate is in the past, that's a CLOSED historical report,
+        // and live-patching it would silently inject today's unrelated
+        // activity into a number the user expects to stay fixed. IST to
+        // match the backend's own definition of "today" (routes/vehicle.js
+        // analytics/batch), so this doesn't drift a day off near midnight
+        // for a viewer in a different timezone.
+        const todayIST = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+        const isPeriodStillOpen =
+          analyticsMode === "today" ||
+          (analyticsMode === "custom" && toDate >= todayIST);
+
         // The vehicle SET changed (one added/removed elsewhere) — no
         // per-row patch can represent that, so get a complete, correct
         // dataset via a normal fetch instead. Routed through the same
@@ -220,17 +245,60 @@ export default function AdminDashboard() {
           prev.map((row) => {
             if (row.vehicle_master_id !== update.vehicle_master_id) return row;
             const next = { ...row, status: update.status || "offline" };
-            // This stream always carries ALL-TIME totals — only apply
-            // hours/kWh while actually viewing "All Time". Applying them
-            // under "Today"/"Date Range" would silently overwrite the
-            // correct period-specific numbers on screen with the wrong
-            // period's data (the same bug class fixed via the request-
-            // ordering guard in fetchData above).
+
+            const newAllTimeHours = update.total_hours;
+            const newAllTimeKwh = update.total_kwh;
+            const prevAllTimeHours = row._streamHours;
+            const prevAllTimeKwh = row._streamKwh;
+
             if (analyticsMode === "all") {
-              next.total_hours = update.total_hours ?? "—";
-              next.total_kwh = update.total_kwh ?? "—";
+              // This stream carries exactly this — apply directly.
+              next.total_hours = newAllTimeHours ?? "—";
+              next.total_kwh = newAllTimeKwh ?? "—";
               next.avg_kwh = update.avg_kwh ?? "—";
+            } else if (
+              isPeriodStillOpen &&
+              prevAllTimeHours != null && newAllTimeHours != null &&
+              prevAllTimeKwh != null && newAllTimeKwh != null &&
+              row.total_hours !== "—" && row.total_kwh !== "—"
+            ) {
+              // "Today"/"Date Range": the stream only ever carries
+              // ALL-TIME totals, which can't be shown directly here without
+              // overwriting the correct period number with the wrong
+              // period's data. But the INCREMENT since the last tick is
+              // identical regardless of which baseline it's measured
+              // from — a vehicle that just ran 3 more minutes added
+              // exactly 3 minutes to both its all-time AND its today
+              // total. So apply that same delta to whatever period-
+              // relative value is already on screen instead.
+              const deltaHours = newAllTimeHours - prevAllTimeHours;
+              const deltaKwh = newAllTimeKwh - prevAllTimeKwh;
+              // Sanity bound: consecutive stream ticks are ~2s apart
+              // server-side, so a real delta should be a tiny fraction of
+              // an hour. A device can send a garbage spike (confirmed for
+              // real on this fleet — vehicle 3's odometer intermittently
+              // sends corrupted multi-thousand-kWh readings) — an
+              // implausible jump must not corrupt what's on screen, and
+              // must not get adopted as the new baseline either, so the
+              // next real reading is compared against the last GOOD one.
+              const deltaIsSane = Math.abs(deltaHours) <= 1 && Math.abs(deltaKwh) <= 500;
+              if (deltaIsSane) {
+                const nextHours = Math.max(0, Number(row.total_hours) + deltaHours);
+                const nextKwh = Math.max(0, Number(row.total_kwh) + deltaKwh);
+                next.total_hours = Number(nextHours.toFixed(2));
+                next.total_kwh = Number(nextKwh.toFixed(2));
+                next.avg_kwh = nextHours > 0 ? Number((nextKwh / nextHours).toFixed(2)) : "—";
+              } else {
+                return { ...row, status: next.status }; // skip baseline update too — see above
+              }
             }
+
+            // Always track the latest all-time baseline (even while
+            // displaying a Today-relative value), so a later switch back
+            // to "All Time" is immediately correct, and so Today's delta
+            // math keeps working across mode switches without a gap.
+            next._streamHours = newAllTimeHours;
+            next._streamKwh = newAllTimeKwh;
             return next;
           })
         );
@@ -238,7 +306,7 @@ export default function AdminDashboard() {
         // Malformed SSE payload — ignore; the next poll cycle resends correctly.
       }
     },
-    [analyticsMode]
+    [analyticsMode, toDate]
   );
 
   const sseStatus = useEventSourceWithBackoff(
