@@ -28,8 +28,9 @@ const columns = [
   { key: "total_hours",  label: "Total Hours",  sortable: true  },
   { key: "total_kwh",    label: "Total kWh",    sortable: true  },
   { key: "avg_kwh",      label: "Avg kWh/Hr",   sortable: true  },
-  { key: "status",       label: "Status",       sortable: true  },
-  { key: "track",        label: "Live Track",   sortable: false },
+  { key: "status",          label: "Status",          sortable: true  },
+  { key: "charging_status", label: "Charging Status", sortable: true  },
+  { key: "track",           label: "Live Track",      sortable: false },
 ];
 
 /* ── Status Pill ─────────────────────────────────────────── */
@@ -57,6 +58,32 @@ const StatusPill = React.memo(({ status }) => {
     >
       <span className={`w-2 h-2 rounded-full animate-pulse ${dotColor[status] || dotColor.offline}`} />
       {label}
+    </span>
+  );
+});
+
+/* ── Charging Status Pill ───────────────────────────────────
+   Backed by live_values.battery_status, mirrored onto
+   vehicle_latest_snapshot by the trg_update_vehicle_latest_snapshot
+   trigger for O(1) reads — same pattern as total_hours/total_kwh. */
+const ChargingStatusPill = React.memo(({ chargingStatus }) => {
+  const config = {
+    Charging:    { style: "bg-blue-500/20  text-blue-300  border-blue-500/40",  dot: "bg-blue-400",  label: "Charging" },
+    Discharging: { style: "bg-slate-500/20 text-slate-300 border-slate-500/40", dot: "bg-slate-400", label: "Discharging" },
+    OFF:         { style: "bg-slate-500/20 text-slate-400 border-slate-500/30", dot: "bg-slate-500", label: "Off" },
+  };
+
+  const entry = config[chargingStatus];
+  if (!entry) {
+    return <span className="text-orange-300/50">—</span>;
+  }
+
+  return (
+    <span
+      className={`px-3 py-1.5 text-xs font-medium rounded-full border flex items-center gap-1.5 w-fit ${entry.style}`}
+    >
+      <span className={`w-2 h-2 rounded-full ${entry.dot}`} />
+      {entry.label}
     </span>
   );
 });
@@ -118,6 +145,7 @@ export default function AdminDashboard() {
         total_kwh:         row.total_kwh   ?? "—",
         avg_kwh:           row.avg_kwh     ?? "—",
         status:            row.status      || "offline",
+        charging_status:   row.charging_status || null,
         last_seen:         row.last_seen,
         // All-time baseline for the live stream's delta math (see
         // handleSummaryStreamMessage below) — captured here, from Step 1's
@@ -247,7 +275,11 @@ export default function AdminDashboard() {
         setRows((prev) =>
           prev.map((row) => {
             if (row.vehicle_master_id !== update.vehicle_master_id) return row;
-            const next = { ...row, status: update.status || "offline" };
+            const next = {
+              ...row,
+              status: update.status || "offline",
+              charging_status: update.charging_status ?? null,
+            };
 
             const newAllTimeHours = update.total_hours;
             const newAllTimeKwh = update.total_kwh;
@@ -292,7 +324,8 @@ export default function AdminDashboard() {
                 next.total_kwh = Number(nextKwh.toFixed(2));
                 next.avg_kwh = nextHours > 0 ? Number((nextKwh / nextHours).toFixed(2)) : "—";
               } else {
-                return { ...row, status: next.status }; // skip baseline update too — see above
+                // skip baseline update too — see above
+                return { ...row, status: next.status, charging_status: next.charging_status };
               }
             }
 
@@ -640,6 +673,9 @@ export default function AdminDashboard() {
                       </td>
                       <td className="px-6 py-5">
                         <StatusPill status={row.status} />
+                      </td>
+                      <td className="px-6 py-5">
+                        <ChargingStatusPill chargingStatus={row.charging_status} />
                       </td>
                       <td className="px-6 py-5">
                         <button

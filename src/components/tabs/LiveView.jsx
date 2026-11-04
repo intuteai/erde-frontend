@@ -48,10 +48,20 @@ const btmsModeLabel = (v) =>
 
 export default function LiveView() {
   const { id } = useParams();
-  const [live, setLive] = useState({});
+  // Raw data as last received — never blanked. `live` (derived below, used
+  // by the entire render) is this with every field blanked out once the
+  // vehicle's gone quiet for LIVE_THRESHOLD_MS, so a stopped vehicle shows
+  // dashes everywhere rather than frozen numbers that look current.
+  const [liveData, setLiveData] = useState({});
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdateTime, setLastUpdateTime] = useState(null);
+  // Forces a re-render every second so staleness is detected purely from
+  // time passing — without this, a vehicle that stops sending data entirely
+  // never triggers a re-render on its own, and the page would keep showing
+  // its last values as if still live until something unrelated happened to
+  // re-render the component (confirmed: this was the actual bug here).
+  const [, forceTick] = useState(0);
 
   // Modals
   const [showTempModal,          setShowTempModal]          = useState(false);
@@ -65,7 +75,7 @@ export default function LiveView() {
     const fetchSnapshot = async () => {
       try {
         const { data } = await axios.get(`/api/vehicles/${id}/live`);
-        setLive(data);
+        setLiveData(data);
         if (data.recorded_at) setLastUpdateTime(new Date(data.recorded_at));
         setError(null);
       } catch (err) {
@@ -79,10 +89,17 @@ export default function LiveView() {
     fetchSnapshot();
   }, [id]);
 
+  // Ticks the component every second purely so isActivelyLive below gets
+  // re-evaluated as time passes, independent of whether new data arrives.
+  useEffect(() => {
+    const interval = setInterval(() => forceTick((t) => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleStreamMessage = useCallback((event) => {
     try {
       const data = JSON.parse(event.data);
-      setLive(data);
+      setLiveData(data);
       if (data.recorded_at) setLastUpdateTime(new Date(data.recorded_at));
       setError(null);
     } catch (e) { console.error("Parse error:", e); }
@@ -101,7 +118,7 @@ export default function LiveView() {
 
   useEffect(() => {
     if (sseStatus === "reconnecting") {
-      setError("Live stream lost – showing last known data");
+      setError("Live stream lost – reconnecting…");
     } else if (sseStatus === "open") {
       setError(null);
     }
@@ -110,6 +127,11 @@ export default function LiveView() {
   const isActivelyLive = lastUpdateTime
     ? Date.now() - lastUpdateTime.getTime() < LIVE_THRESHOLD_MS
     : false;
+
+  // Every parameter on this page reads from `live`, not `liveData` — once
+  // the vehicle's gone quiet, this is {}, so every field renders as "–"
+  // instead of holding the last real values as if they were still current.
+  const live = isActivelyLive ? liveData : {};
 
   const formatTimestamp = (date) =>
     date
@@ -184,10 +206,14 @@ export default function LiveView() {
   };
   const soh = sohBadge(live.soh_percent);
 
-  if (loading && !Object.keys(live).length)
+  // These check liveData (ever received anything?), not the blanked `live`
+  // alias — a vehicle that WAS live and has since gone quiet must still show
+  // the normal (now all-dashes) layout below, not the full-page loading or
+  // error screen meant only for "nothing has ever loaded".
+  if (loading && !Object.keys(liveData).length)
     return <div className="text-center py-12 text-orange-200">Loading live data…</div>;
 
-  if (error && !Object.keys(live).length)
+  if (error && !Object.keys(liveData).length)
     return <div className="text-center py-12 text-red-400">Error: {error}</div>;
 
   return (
@@ -202,13 +228,13 @@ export default function LiveView() {
           <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold ${
             isActivelyLive
               ? "bg-emerald-600/30 text-emerald-300 border border-emerald-500/80"
-              : "bg-gray-700/40 text-gray-400 border border-gray-600/60"
+              : "bg-red-900/30 text-red-400 border border-red-700/60"
           }`}>
             <span className={isActivelyLive ? "animate-pulse" : ""}>●</span>
-            {isActivelyLive ? "LIVE" : "Last Known"}
+            {isActivelyLive ? "LIVE" : "OFFLINE"}
           </span>
           <div className="text-right">
-            <div className="text-xs text-gray-500">Updated</div>
+            <div className="text-xs text-gray-500">{isActivelyLive ? "Updated" : "Last seen"}</div>
             <div className="text-sm text-orange-300 font-medium">{formatTimestamp(lastUpdateTime)}</div>
           </div>
         </div>
