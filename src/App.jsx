@@ -9,6 +9,7 @@ import {
   Navigate,
 } from "react-router-dom";
 import axios from "axios";
+import { refreshAccessToken } from "./lib/authRefresh";
 
 // Layout & Auth
 import LoginModal from "./components/LoginModal";
@@ -33,7 +34,18 @@ import VCUMaster from "./components/masters/VCUMaster";
 import HMIMaster from "./components/masters/HMIMaster";
 import VehicleMaster from "./components/masters/VehicleMaster";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+// `??` (not `||`): production sets VITE_API_URL="" deliberately (same-origin,
+// via .env.production) so the build never bakes in a dev-only localhost URL
+// — an empty string must NOT fall through to the dev default.
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
+
+// Refreshed access tokens are valid for 15 minutes (routes/auth.js). A tab
+// left open with nothing but SSE streams active used to never hit any code
+// path that renews it, so it expired outright — confirmed live in
+// production. Refreshing a minute early keeps that from ever happening for
+// the common case; the SSE hook's own refresh-on-error is the fallback for
+// when this didn't fire in time (e.g. the laptop was asleep).
+const PROACTIVE_REFRESH_INTERVAL_MS = 14 * 60 * 1000;
 
 axios.defaults.withCredentials = true;
 
@@ -75,10 +87,7 @@ function App() {
           setServerUnreachable(true);
         } else if (err.response.status === 401) {
           try {
-            await axios.post(`${API_BASE_URL}/api/auth/refresh`, {}, {
-              withCredentials: true,
-              _retry: true,
-            });
+            await refreshAccessToken();
             const res = await axios.get(`${API_BASE_URL}/api/auth/me`, { _retry: true });
             setUser(res.data.user);
             setServerUnreachable(false);
@@ -105,6 +114,42 @@ function App() {
     window.addEventListener("auth:login", handleAuthLogin);
     return () => window.removeEventListener("auth:login", handleAuthLogin);
   }, []);
+
+  // Listen for auth:logout, dispatched by useEventSourceWithBackoff when an
+  // SSE stream's own refresh attempt comes back 401 — the refresh token is
+  // invalid/expired too, so the session is genuinely over and every stream
+  // would otherwise retry (and 401) forever with nothing ever sending the
+  // user back to login.
+  useEffect(() => {
+    const handleAuthLogout = () => {
+      setUser(null);
+      navigate("/", { replace: true });
+    };
+    window.addEventListener("auth:logout", handleAuthLogout);
+    return () => window.removeEventListener("auth:logout", handleAuthLogout);
+  }, [navigate]);
+
+  // Proactively renew the access token before it expires. Without this, a
+  // dashboard left open with only SSE streams active (no ordinary REST
+  // calls to trip the 401 interceptor) would ride the token all the way to
+  // expiry every time — this keeps that from being the common case; the SSE
+  // hook's own refresh-on-error remains the fallback for when a renewal is
+  // missed (e.g. the laptop was asleep through it).
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => {
+      refreshAccessToken().catch((err) => {
+        if (err.response?.status === 401) {
+          setUser(null);
+          navigate("/", { replace: true });
+        }
+        // Any other failure (offline, server down) — skip this cycle, the
+        // next one will try again; the SSE/interceptor fallbacks still
+        // cover an access token that expires in the meantime.
+      });
+    }, PROACTIVE_REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [user, navigate]);
 
   // Navigate based on user state changes
   useEffect(() => {
@@ -151,11 +196,7 @@ function App() {
         isRefreshing = true;
 
         try {
-          await axios.post(
-            `${API_BASE_URL}/api/auth/refresh`,
-            {},
-            { withCredentials: true, _retry: true }
-          );
+          await refreshAccessToken();
           processQueue(null);
           return axios(originalRequest);
         } catch (refreshErr) {

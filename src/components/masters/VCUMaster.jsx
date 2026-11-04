@@ -3,7 +3,10 @@ import { Search, Download, Plus, Pencil, Trash2, AlertCircle } from "lucide-reac
 import axios from "axios";
 
 /* ===================== API ===================== */
-const API_BASE = "http://localhost:5000/api/vcu";
+// `??` (not `||`): production sets VITE_API_URL="" deliberately (same-origin)
+// so the build never bakes in a dev-only localhost URL — an empty string
+// must NOT fall through to the dev default.
+const API_BASE = `${import.meta.env.VITE_API_URL ?? "http://localhost:5000"}/api/vcu`;
 
 const getAuthHeaders = () => ({});
 

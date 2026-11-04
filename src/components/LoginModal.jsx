@@ -5,7 +5,10 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 // import veloConnectLogo from "../assets/VeloConnectwb.png";
 import erdeLogo from "../assets/ERDE_HorizontalLogo_PNG.png";
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+// `??` (not `||`): production sets VITE_API_URL="" deliberately (same-origin)
+// so the build never bakes in a dev-only localhost URL — an empty string
+// must NOT fall through to the dev default.
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
 /** @param {{ onClose?: () => void, onAuth?: (payload: { user: any }) => void, serverUnreachable?: boolean }} props */
 export default function LoginModal({ onClose, onAuth, serverUnreachable }) {

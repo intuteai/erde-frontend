@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
+import { useEventSourceWithBackoff } from "../../lib/useEventSourceWithBackoff";
 
 const LIVE_THRESHOLD_MS = 15000;
 
@@ -58,8 +59,6 @@ export default function LiveView() {
   const [showStringVoltModal,    setShowStringVoltModal]    = useState(false);
   const [showStringTempModal,    setShowStringTempModal]    = useState(false);
 
-  const eventSourceRef = useRef(null);
-
   useEffect(() => {
     if (!id) { setError("Invalid vehicle ID"); setLoading(false); return; }
 
@@ -78,34 +77,35 @@ export default function LiveView() {
     };
 
     fetchSnapshot();
-
-    if (eventSourceRef.current) eventSourceRef.current.close();
-
-    const es = new EventSource(`/api/vehicles/${id}/stream`, { withCredentials: true });
-    eventSourceRef.current = es;
-
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setLive(data);
-        if (data.recorded_at) setLastUpdateTime(new Date(data.recorded_at));
-        setError(null);
-      } catch (e) { console.error("Parse error:", e); }
-    };
-
-    es.onerror = () => {
-      console.warn("SSE disconnected – refreshing auth then reconnecting");
-      setError("Live stream lost – showing last known data");
-      // Proactively refresh the access_token so the SSE auto-reconnect succeeds
-      axios.get("/api/auth/me").catch(() => {});
-    };
-
-    es.onopen = () => { console.log("SSE connected"); setError(null); };
-
-    return () => {
-      if (eventSourceRef.current) { eventSourceRef.current.close(); eventSourceRef.current = null; }
-    };
   }, [id]);
+
+  const handleStreamMessage = useCallback((event) => {
+    try {
+      const data = JSON.parse(event.data);
+      setLive(data);
+      if (data.recorded_at) setLastUpdateTime(new Date(data.recorded_at));
+      setError(null);
+    } catch (e) { console.error("Parse error:", e); }
+  }, []);
+
+  // Refreshes the access token on every error before reconnecting — a
+  // stream whose token merely expired (very common on a long-open tab)
+  // used to reconnect with the same dead token forever, 401ing every
+  // attempt with no recovery (confirmed live in production). See
+  // useEventSourceWithBackoff for the full explanation.
+  const sseStatus = useEventSourceWithBackoff(
+    id ? `/api/vehicles/${id}/stream` : null,
+    handleStreamMessage,
+    { enabled: !!id }
+  );
+
+  useEffect(() => {
+    if (sseStatus === "reconnecting") {
+      setError("Live stream lost – showing last known data");
+    } else if (sseStatus === "open") {
+      setError(null);
+    }
+  }, [sseStatus]);
 
   const isActivelyLive = lastUpdateTime
     ? Date.now() - lastUpdateTime.getTime() < LIVE_THRESHOLD_MS

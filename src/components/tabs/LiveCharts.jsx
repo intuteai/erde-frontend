@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
+import { useEventSourceWithBackoff } from "../../lib/useEventSourceWithBackoff";
 import {
   AreaChart,
   Area,
@@ -907,7 +908,6 @@ export default function LiveCharts() {
   const [error,          setError]          = useState(null);
   const [loading,        setLoading]        = useState(true);
 
-  const esRef    = useRef(null);
   const seenTsMs = useRef(new Set());
 
   const isActivelyLive = lastUpdateTime
@@ -970,32 +970,36 @@ export default function LiveCharts() {
     })();
   }, [id]);
 
-  /* ── SSE ── */
+  /* ── SSE ──
+     Refreshes the access token on every error before reconnecting — a
+     stream whose token merely expired (very common on a long-open tab)
+     used to reconnect with the same dead token forever, 401ing every
+     attempt with no recovery (confirmed live in production). See
+     useEventSourceWithBackoff for the full explanation. */
+  const handleStreamMessage = useCallback((event) => {
+    try {
+      const data = JSON.parse(event.data);
+      addPoint(data);
+      if (data.recorded_at) setLastUpdateTime(new Date(data.recorded_at));
+      setError(null);
+    } catch (e) {
+      console.error("[LiveCharts] SSE parse error:", e);
+    }
+  }, [addPoint]);
+
+  const sseStatus = useEventSourceWithBackoff(
+    id ? `/api/vehicles/${id}/stream` : null,
+    handleStreamMessage,
+    { enabled: !!id }
+  );
+
   useEffect(() => {
-    if (!id) return;
-
-    if (esRef.current) esRef.current.close();
-    const es = new EventSource(`/api/vehicles/${id}/stream`, { withCredentials: true });
-    esRef.current = es;
-
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        addPoint(data);
-        if (data.recorded_at) setLastUpdateTime(new Date(data.recorded_at));
-        setError(null);
-      } catch (e) {
-        console.error("[LiveCharts] SSE parse error:", e);
-      }
-    };
-    es.onerror = () => {
+    if (sseStatus === "reconnecting") {
       setError("Live stream lost – showing last known data");
-      axios.get("/api/auth/me").catch(() => {});
-    };
-    es.onopen  = () => setError(null);
-
-    return () => { if (esRef.current) { esRef.current.close(); esRef.current = null; } };
-  }, [id, addPoint]);
+    } else if (sseStatus === "open") {
+      setError(null);
+    }
+  }, [sseStatus]);
 
   /* ── Rolling-window trimmer ── */
   useEffect(() => {

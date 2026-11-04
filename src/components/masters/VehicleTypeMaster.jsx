@@ -12,8 +12,12 @@ import {
 import axios from "axios";
 
 // BACKEND APIs
-const API_BASE = "http://localhost:5000/api/vehicle-types";
-const CATEGORY_API = "http://localhost:5000/api/vehicle-categories";
+// `??` (not `||`): production sets VITE_API_URL="" deliberately (same-origin)
+// so the build never bakes in a dev-only localhost URL — an empty string
+// must NOT fall through to the dev default.
+const API_ORIGIN = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
+const API_BASE = `${API_ORIGIN}/api/vehicle-types`;
+const CATEGORY_API = `${API_ORIGIN}/api/vehicle-categories`;
 
 const getAuthHeaders = () => ({});
 
