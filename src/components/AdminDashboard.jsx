@@ -22,7 +22,6 @@ const RETRY_DELAY_MS = 5000;
 const columns = [
   { key: "index",        label: "S.No",        sortable: false },
   { key: "vehicle_type", label: "Vehicle Type", sortable: true  },
-  { key: "capacity",     label: "Capacity (T)", sortable: false },
   { key: "vehicle_no",   label: "Vehicle No",   sortable: true  },
   { key: "customer",     label: "Customer",     sortable: true  },
   { key: "total_hours",  label: "Total Hours",  sortable: true  },
@@ -138,7 +137,6 @@ export default function AdminDashboard() {
       let baseRows = summaryRes.data.map((row) => ({
         vehicle_master_id: row.vehicle_master_id,
         vehicle_type:      row.vehicle_type?.trim() || "—",
-        capacity:          row.capacity ?? "—",
         vehicle_no:        row.vehicle_no  || "—",
         customer:          row.customer    || "—",
         total_hours:       row.total_hours ?? "—",
@@ -659,7 +657,6 @@ export default function AdminDashboard() {
                       <td className="px-6 py-5 font-medium text-orange-100">
                         {row.vehicle_type}
                       </td>
-                      <td className="px-6 py-5 text-orange-200">{row.capacity}</td>
                       <td className="px-6 py-5 font-semibold">{row.vehicle_no}</td>
                       <td className="px-6 py-5">{row.customer}</td>
                       <td className="px-6 py-5">
