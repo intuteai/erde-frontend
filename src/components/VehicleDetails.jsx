@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
@@ -15,8 +15,8 @@ import LiveCharts from "./tabs/LiveCharts"; // ✅ NEW
 export default function VehicleDetails() {
   // The URL's :id is the source of truth for which vehicle is shown — not
   // just localStorage's cached selection, which only updated on a row
-  // click and never reacted to the URL changing (e.g. Previous/Next below,
-  // or a bookmarked link to a different vehicle).
+  // click and never reacted to the URL changing (e.g. the vehicle-jump
+  // dropdown below, or a bookmarked link to a different vehicle).
   const { id: urlId } = useParams();
   const navigate = useNavigate();
 
@@ -26,28 +26,25 @@ export default function VehicleDetails() {
   // Every vehicle this user can see, sorted by vehicle_master_id — fetched
   // once (role-scoped: admin sees the whole fleet, customer sees only
   // their own, same as their respective dashboards), reused both to
-  // display the header and to drive Previous/Next.
+  // display the header and to populate the vehicle-jump dropdown.
   const [navList, setNavList] = useState([]);
-  // Blocks a second Previous/Next click from firing while the previous
+  // Blocks a second vehicle selection from firing while the previous
   // one's navigate() hasn't landed yet — see goToVehicle and the urlId
   // effect below.
   const navigatingRef = useRef(false);
 
   // Re-syncs `vehicle` to the URL's :id on every navigation, including
-  // Previous/Next below (which only changes the URL, not a fresh
-  // localStorage write before the component would otherwise re-check it).
+  // the vehicle-jump dropdown below (which only changes the URL, not a
+  // fresh localStorage write before the component would otherwise
+  // re-check it).
   useEffect(() => {
     const vehicleData = localStorage.getItem("selectedVehicle");
     if (vehicleData) {
       const parsed = JSON.parse(vehicleData);
       if (String(parsed.id) === String(urlId)) setVehicle(parsed);
     }
-    // The URL has now genuinely caught up to the last click — safe to
-    // accept another Previous/Next click. See goToVehicle below: without
-    // this, clicking faster than React can re-render (sub-second bursts)
-    // fires multiple clicks against the same stale prevVehicle/nextVehicle
-    // closure, which can desync the URL from navList's idx lookup and
-    // leave both buttons stuck disabled.
+    // The URL has now genuinely caught up to the last selection — safe to
+    // accept another one. See goToVehicle below.
     navigatingRef.current = false;
   }, [urlId]);
 
@@ -93,15 +90,6 @@ export default function VehicleDetails() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.role]);
 
-  const { prevVehicle, nextVehicle } = useMemo(() => {
-    const idx = navList.findIndex((v) => String(v.id) === String(urlId));
-    if (idx === -1) return { prevVehicle: null, nextVehicle: null };
-    return {
-      prevVehicle: idx > 0 ? navList[idx - 1] : null,
-      nextVehicle: idx < navList.length - 1 ? navList[idx + 1] : null,
-    };
-  }, [navList, urlId]);
-
   const goToVehicle = (target) => {
     if (!target || navigatingRef.current) return;
     navigatingRef.current = true;
@@ -116,27 +104,28 @@ export default function VehicleDetails() {
 
   const isCustomer = user?.role === "customer";
 
-  const NavButtons = ({ className = "" }) => (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <button
-        onClick={() => goToVehicle(prevVehicle)}
-        disabled={!prevVehicle}
-        aria-label={prevVehicle ? `Previous vehicle: ${prevVehicle.vehicleNo}` : "No previous vehicle"}
-        title={prevVehicle ? `Previous: ${prevVehicle.vehicleNo}` : undefined}
-        className="px-3 py-1.5 rounded-lg border border-orange-500/30 text-orange-200 bg-black/40 hover:bg-orange-500/10 transition text-sm font-medium disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-black/40"
-      >
-        ‹ Previous
-      </button>
-      <button
-        onClick={() => goToVehicle(nextVehicle)}
-        disabled={!nextVehicle}
-        aria-label={nextVehicle ? `Next vehicle: ${nextVehicle.vehicleNo}` : "No next vehicle"}
-        title={nextVehicle ? `Next: ${nextVehicle.vehicleNo}` : undefined}
-        className="px-3 py-1.5 rounded-lg border border-orange-500/30 text-orange-200 bg-black/40 hover:bg-orange-500/10 transition text-sm font-medium disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-black/40"
-      >
-        Next ›
-      </button>
-    </div>
+  // Jump straight to any vehicle in one selection instead of paging through
+  // Previous/Next — the client specifically asked not to need many clicks
+  // to reach a distant vehicle (e.g. the 8th one).
+  const handleVehicleSelect = (e) => {
+    const target = navList.find((v) => String(v.id) === e.target.value);
+    goToVehicle(target);
+  };
+
+  const VehicleSelect = ({ className = "" }) => (
+    <select
+      value={urlId ?? ""}
+      onChange={handleVehicleSelect}
+      disabled={navList.length === 0}
+      aria-label="Jump to vehicle"
+      className={`px-3 py-1.5 rounded-lg border border-orange-500/30 text-orange-200 bg-black/40 hover:bg-orange-500/10 transition text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/50 disabled:opacity-30 disabled:cursor-not-allowed ${className}`}
+    >
+      {navList.map((v) => (
+        <option key={v.id} value={String(v.id)} className="bg-gray-900 text-orange-200">
+          {v.vehicleNo}{(isCustomer ? v.vehicleType : v.customer) ? ` — ${isCustomer ? v.vehicleType : v.customer}` : ""}
+        </option>
+      ))}
+    </select>
   );
 
   /* ========================= CUSTOMER VIEW ========================= */
@@ -157,7 +146,7 @@ export default function VehicleDetails() {
                 Live Vehicle Monitoring
               </p>
             </div>
-            <NavButtons />
+            <VehicleSelect />
           </div>
         </div>
         <div className="px-6 py-10">
@@ -194,7 +183,7 @@ export default function VehicleDetails() {
               {vehicle.vehicle_reg_no || vehicle.vehicleNo}
             </p>
           </div>
-          <NavButtons />
+          <VehicleSelect />
         </div>
       </div>
 
