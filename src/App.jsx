@@ -60,6 +60,41 @@ const processQueue = (error) => {
   failedQueue = [];
 };
 
+/* =========================
+   PROTECTED LAYOUT
+========================= */
+// Hoisted to module scope deliberately — defining this inside App() made it
+// a brand-new component type on every App render (e.g. every navigation),
+// so React fully unmounted and remounted the entire page under it instead
+// of just updating it. Usually invisible since each page just refetches
+// its own data on mount, but it broke VehicleDetails' Previous/Next under
+// rapid clicks: every click remounted it, refiring its /api/auth/me call,
+// and enough of those in a burst tripped the backend's rate limiter (429)
+// — silently leaving `user` unset for that mount and the nav list
+// permanently empty, with both buttons stuck disabled until a full page
+// reload. Hoisting this preserves component identity across navigation,
+// so React updates in place instead of rebuilding from scratch.
+function ProtectedLayout({ children, requiredRole, user, onLogout }) {
+  if (!user) return <Navigate to="/" replace />;
+
+  if (requiredRole && user.role !== requiredRole) {
+    return (
+      <Navigate
+        to={user.role === "admin" ? "/admin" : "/dashboard"}
+        replace
+      />
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col bg-[#0b0f17]">
+      <Header user={user} onLogout={onLogout} />
+      <main className="flex-grow">{children}</main>
+      <FooterFixed />
+    </div>
+  );
+}
+
 function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [user, setUser] = useState(null);
@@ -224,30 +259,6 @@ function App() {
     navigate("/", { replace: true });
   };
 
-  /* =========================
-     PROTECTED LAYOUT
-  ========================= */
-  const ProtectedLayout = ({ children, requiredRole }) => {
-    if (!user) return <Navigate to="/" replace />;
-
-    if (requiredRole && user.role !== requiredRole) {
-      return (
-        <Navigate
-          to={user.role === "admin" ? "/admin" : "/dashboard"}
-          replace
-        />
-      );
-    }
-
-    return (
-      <div className="min-h-screen flex flex-col bg-[#0b0f17]">
-        <Header user={user} onLogout={handleLogout} />
-        <main className="flex-grow">{children}</main>
-        <FooterFixed />
-      </div>
-    );
-  };
-
   return (
     <div className="min-h-screen">
       {authLoading ? (
@@ -297,7 +308,7 @@ function App() {
           <Route
             path="/admin"
             element={
-              <ProtectedLayout requiredRole="admin">
+              <ProtectedLayout requiredRole="admin" user={user} onLogout={handleLogout}>
                 <AdminDashboard />
               </ProtectedLayout>
             }
@@ -306,7 +317,7 @@ function App() {
           <Route
             path="/dashboard"
             element={
-              <ProtectedLayout requiredRole="customer">
+              <ProtectedLayout requiredRole="customer" user={user} onLogout={handleLogout}>
                 <CustomerDashboard />
               </ProtectedLayout>
             }
@@ -316,7 +327,7 @@ function App() {
           <Route
             path="/vehicle/:id"
             element={
-              <ProtectedLayout>
+              <ProtectedLayout user={user} onLogout={handleLogout}>
                 <VehicleDetails />
               </ProtectedLayout>
             }
@@ -326,7 +337,7 @@ function App() {
           <Route
             path="/vehicle/:id/track"
             element={
-              <ProtectedLayout>
+              <ProtectedLayout user={user} onLogout={handleLogout}>
                 <VehicleLiveTrack />
               </ProtectedLayout>
             }
@@ -336,7 +347,7 @@ function App() {
           <Route
             path="/fleet/map"
             element={
-              <ProtectedLayout>
+              <ProtectedLayout user={user} onLogout={handleLogout}>
                 <FleetMap />
               </ProtectedLayout>
             }
@@ -346,7 +357,7 @@ function App() {
           <Route
             path="/masters/customers"
             element={
-              <ProtectedLayout requiredRole="admin">
+              <ProtectedLayout requiredRole="admin" user={user} onLogout={handleLogout}>
                 <CustomerMaster />
               </ProtectedLayout>
             }
@@ -355,7 +366,7 @@ function App() {
           <Route
             path="/masters/vehicle-types"
             element={
-              <ProtectedLayout requiredRole="admin">
+              <ProtectedLayout requiredRole="admin" user={user} onLogout={handleLogout}>
                 <VehicleTypeMaster />
               </ProtectedLayout>
             }
@@ -364,7 +375,7 @@ function App() {
           <Route
             path="/masters/vcu"
             element={
-              <ProtectedLayout requiredRole="admin">
+              <ProtectedLayout requiredRole="admin" user={user} onLogout={handleLogout}>
                 <VCUMaster />
               </ProtectedLayout>
             }
@@ -373,7 +384,7 @@ function App() {
           <Route
             path="/masters/hmi"
             element={
-              <ProtectedLayout requiredRole="admin">
+              <ProtectedLayout requiredRole="admin" user={user} onLogout={handleLogout}>
                 <HMIMaster />
               </ProtectedLayout>
             }
@@ -382,7 +393,7 @@ function App() {
           <Route
             path="/masters/vehicles"
             element={
-              <ProtectedLayout requiredRole="admin">
+              <ProtectedLayout requiredRole="admin" user={user} onLogout={handleLogout}>
                 <VehicleMaster />
               </ProtectedLayout>
             }
