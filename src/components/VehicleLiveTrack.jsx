@@ -28,7 +28,12 @@ const API_BASE_URL =
 
 const TRACK_MARKER_SIZE = 40;
 
-const LIVE_THRESHOLD_MS = 15_000;
+// Measured live over a real 24h window: normal cadence is a rock-solid
+// ~2-4s (p99), but genuine brief hiccups up to ~22s do happen, with the
+// next real outage tier starting around ~205s+ — nothing in between. 15s
+// sat inside that first gap, causing false live->offline flicker on brief
+// hiccups. 30s clears every observed hiccup with margin.
+const LIVE_THRESHOLD_MS = 30_000;
 const OFFLINE_THRESHOLD_MS = 5 * 60_000;
 const MAX_POINTS = 100;
 const LIVE_POLL_INTERVAL_MS = 3_000;

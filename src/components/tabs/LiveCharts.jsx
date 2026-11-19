@@ -15,7 +15,15 @@ import {
 /* ─────────────────────────────────────────────────────────────
    Constants — identical to LiveView
 ───────────────────────────────────────────────────────────── */
-const LIVE_THRESHOLD_MS  = 15000;
+// `recorded_at` is the DEVICE's own timestamp, not server-receive time.
+// Measured live over a real 24h window: normal cadence is a rock-solid
+// ~2-4s (p99), but genuine brief hiccups up to ~22s do happen, with the
+// next real outage tier starting around ~205s+ — nothing in between. 15s
+// sat inside that first gap, so a vehicle with nothing wrong would
+// intermittently flash "Last Known" then recover the instant its next
+// (already-due) reading arrived. 30s clears every observed hiccup with
+// margin while still catching every genuine outage promptly.
+const LIVE_THRESHOLD_MS  = 30000;
 const WINDOW_MS          = 5 * 60 * 1000;
 const MAX_POINTS         = 150;
 const STALE_THRESHOLD_MS = 10 * 60 * 1000;

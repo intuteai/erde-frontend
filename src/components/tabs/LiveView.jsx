@@ -3,7 +3,17 @@ import { useParams } from "react-router-dom";
 import axios from "axios";
 import { useEventSourceWithBackoff } from "../../lib/useEventSourceWithBackoff";
 
-const LIVE_THRESHOLD_MS = 15000;
+// `recorded_at` is the DEVICE's own timestamp, not server-receive time —
+// confirmed live: device→DB insertion lag alone runs 2-5s under normal
+// conditions, and some vehicles have natural gaps between consecutive
+// readings up to ~18s even while genuinely online and healthy (measured:
+// vehicle 6, p95 gap 12s, max 18.1s, over a real 10-minute window). 15s
+// left almost no margin above that combined worst case (~23s), so a
+// vehicle with nothing wrong would intermittently flash OFFLINE then
+// immediately recover the moment its next (already-due) reading arrived —
+// exactly the "turns offline, then data comes back instantly" the client
+// reported. 30s gives real headroom above the measured worst case.
+const LIVE_THRESHOLD_MS = 30000;
 
 // ─── Color helpers (matching mobile app exactly) ─────────────────────────────
 const tempColor = (t) => {
