@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
@@ -28,6 +28,10 @@ export default function VehicleDetails() {
   // their own, same as their respective dashboards), reused both to
   // display the header and to drive Previous/Next.
   const [navList, setNavList] = useState([]);
+  // Blocks a second Previous/Next click from firing while the previous
+  // one's navigate() hasn't landed yet — see goToVehicle and the urlId
+  // effect below.
+  const navigatingRef = useRef(false);
 
   // Re-syncs `vehicle` to the URL's :id on every navigation, including
   // Previous/Next below (which only changes the URL, not a fresh
@@ -38,6 +42,13 @@ export default function VehicleDetails() {
       const parsed = JSON.parse(vehicleData);
       if (String(parsed.id) === String(urlId)) setVehicle(parsed);
     }
+    // The URL has now genuinely caught up to the last click — safe to
+    // accept another Previous/Next click. See goToVehicle below: without
+    // this, clicking faster than React can re-render (sub-second bursts)
+    // fires multiple clicks against the same stale prevVehicle/nextVehicle
+    // closure, which can desync the URL from navList's idx lookup and
+    // leave both buttons stuck disabled.
+    navigatingRef.current = false;
   }, [urlId]);
 
   useEffect(() => {
@@ -92,7 +103,8 @@ export default function VehicleDetails() {
   }, [navList, urlId]);
 
   const goToVehicle = (target) => {
-    if (!target) return;
+    if (!target || navigatingRef.current) return;
+    navigatingRef.current = true;
     localStorage.setItem("selectedVehicle", JSON.stringify(target));
     setVehicle(target);
     navigate(`/vehicle/${target.id}`);
