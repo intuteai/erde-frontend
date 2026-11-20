@@ -25,7 +25,14 @@ function ModernMotorAnalytics() {
   const [error, setError] = useState(null);
 
   /* ===== FETCH 30-DAY / SINGLE-DAY SUMMARY ROW(S) ===== */
+  // Guards against a stale response landing after a newer one — without
+  // this, switching vehicles (e.g. via the jump dropdown) before a request
+  // resolves could have an older vehicle's slower-to-arrive response
+  // overwrite a newer vehicle's already-correct chart data. Previously
+  // masked by every vehicle switch fully remounting this component;
+  // no longer true now that navigation preserves state.
   useEffect(() => {
+    let cancelled = false;
     const fetchData = async () => {
       try {
         setLoading(true);
@@ -33,15 +40,18 @@ function ModernMotorAnalytics() {
           ? `/api/motor/analytics/${id}?date=${selectedDate}`
           : `/api/motor/analytics/${id}?days=30`;
         const { data: rows } = await axios.get(url);
+        if (cancelled) return;
         setData(rows || []);
         setError(null);
       } catch (err) {
+        if (cancelled) return;
         setError(err.message);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     if (id) fetchData();
+    return () => { cancelled = true; };
   }, [id, selectedDate]);
 
   /* ===== FETCH HOUR-BY-HOUR BREAKDOWN FOR THE SELECTED DAY =====
@@ -53,20 +63,23 @@ function ModernMotorAnalytics() {
       setHourly([]);
       return;
     }
+    let cancelled = false;
     const fetchHourly = async () => {
       try {
         setHourlyLoading(true);
         const { data: rows } = await axios.get(
           `/api/motor/analytics/${id}/hourly?date=${selectedDate}`
         );
+        if (cancelled) return;
         setHourly(rows || []);
       } catch (err) {
-        setHourly([]);
+        if (!cancelled) setHourly([]);
       } finally {
-        setHourlyLoading(false);
+        if (!cancelled) setHourlyLoading(false);
       }
     };
     fetchHourly();
+    return () => { cancelled = true; };
   }, [id, selectedDate]);
 
   const odo = useMemo(() => {

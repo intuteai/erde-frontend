@@ -82,21 +82,42 @@ export default function LiveView() {
   useEffect(() => {
     if (!id) { setError("Invalid vehicle ID"); setLoading(false); return; }
 
+    // Guards against a stale response landing after a newer one: without
+    // this, switching vehicles (e.g. via the jump dropdown) before this
+    // request resolves could have an older vehicle's slower-to-arrive
+    // response overwrite a newer vehicle's already-correct data — e.g. an
+    // offline vehicle's page flipping to "LIVE" using a different, online
+    // vehicle's data that happened to resolve later. Previously masked by
+    // every vehicle switch fully remounting this component (discarding any
+    // in-flight request's effect); no longer true now that navigation
+    // preserves state, so this must guard itself.
+    let cancelled = false;
+
+    // Also clear immediately (not just guard the response) so the new
+    // vehicle's page never briefly shows the previous vehicle's data while
+    // this fetch is in flight.
+    setLiveData({});
+    setLastUpdateTime(null);
+    setLoading(true);
+
     const fetchSnapshot = async () => {
       try {
         const { data } = await axios.get(`/api/vehicles/${id}/live`);
+        if (cancelled) return;
         setLiveData(data);
         if (data.recorded_at) setLastUpdateTime(new Date(data.recorded_at));
         setError(null);
       } catch (err) {
+        if (cancelled) return;
         console.error("Snapshot error:", err);
         setError("Failed to load initial data");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchSnapshot();
+    return () => { cancelled = true; };
   }, [id]);
 
   // Ticks the component every second purely so isActivelyLive below gets

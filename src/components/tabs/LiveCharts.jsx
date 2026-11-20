@@ -592,21 +592,31 @@ function ActivityTimeline({ vehicleId }) {
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState(null);
   const [hoveredIdx,   setHoveredIdx]   = useState(null);
+  // Guards against a stale response landing after a newer one — without
+  // this, switching vehicles (e.g. via the jump dropdown) before a request
+  // resolves could have an older vehicle's slower-to-arrive response
+  // overwrite a newer vehicle's already-correct activity data. Previously
+  // masked by every vehicle switch fully remounting this component;
+  // no longer true now that navigation preserves state.
+  const requestTokenRef = useRef(0);
 
   /* ── Fetch ── */
   const fetchActivity = useCallback(async (date) => {
     if (!vehicleId) return;
+    const token = ++requestTokenRef.current;
     setLoading(true);
     setError(null);
     setData(null);
     try {
       const { data: activityData } = await axios.get(`/api/vehicles/${vehicleId}/activity?date=${date}`);
+      if (token !== requestTokenRef.current) return;
       setData(activityData);
     } catch (err) {
+      if (token !== requestTokenRef.current) return;
       console.error("[ActivityTimeline] fetch failed:", err.message);
       setError("Failed to load activity data");
     } finally {
-      setLoading(false);
+      if (token === requestTokenRef.current) setLoading(false);
     }
   }, [vehicleId]);
 
@@ -947,12 +957,28 @@ export default function LiveCharts() {
   }, []);
 
   /* ── Seed ── */
+  // Guards against a stale response landing after a newer one — without
+  // this, switching vehicles (e.g. via the jump dropdown) before this
+  // request resolves could have an older vehicle's slower-to-arrive
+  // response seed the chart with the wrong vehicle's data. Previously
+  // masked by every vehicle switch fully remounting this component;
+  // no longer true now that navigation preserves state.
   useEffect(() => {
     if (!id) return;
+    let cancelled = false;
+
+    // Clear immediately (not just guard the response) so the new vehicle's
+    // chart and LIVE/Last Known badge never briefly show the previous
+    // vehicle's data while this fetch is in flight.
+    seenTsMs.current.clear();
+    setDataPoints([]);
+    setLastUpdateTime(null);
+    setLoading(true);
 
     (async () => {
       try {
         const { data: rows } = await axios.get(`/api/vehicles/${id}/timeseries?minutes=5`);
+        if (cancelled) return;
 
         if (Array.isArray(rows) && rows.length > 0) {
           const sorted = [...rows].sort(
@@ -971,11 +997,13 @@ export default function LiveCharts() {
           setDataPoints(points);
         }
       } catch (err) {
-        console.warn("[LiveCharts] seed failed:", err.message);
+        if (!cancelled) console.warn("[LiveCharts] seed failed:", err.message);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+
+    return () => { cancelled = true; };
   }, [id]);
 
   /* ── SSE ──

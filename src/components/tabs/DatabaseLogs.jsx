@@ -283,6 +283,15 @@ export default function DatabaseLogs() {
   const [hasMore, setHasMore]           = useState(true);
   const [error, setError]               = useState(null);
   const loadMoreRef                     = useRef(null);
+  // Guards against a stale response landing after a newer one — without
+  // this, switching vehicles (e.g. via the jump dropdown) before a request
+  // resolves could have an older vehicle's slower-to-arrive response
+  // overwrite a newer vehicle's already-loaded rows. Previously masked by
+  // every vehicle switch fully remounting this component; no longer true
+  // now that navigation preserves state. Set synchronously whenever
+  // vehicle/date changes; fetchLogs only commits state if its own request
+  // key still matches by the time it resolves.
+  const requestKeyRef                   = useRef(null);
 
   // ---- column visibility ----
   const [selectedCols, setSelectedCols] = useState(
@@ -325,6 +334,7 @@ export default function DatabaseLogs() {
   /* ========================= FETCH LOGS ========================= */
   const fetchLogs = useCallback(async (reset = false) => {
     if (loading || (!hasMore && !reset)) return;
+    const key = requestKeyRef.current;
     setLoading(true);
     setError(null);
 
@@ -333,6 +343,7 @@ export default function DatabaseLogs() {
       if (!reset && cursor) params.set("cursor", cursor);
 
       const res = await axios.get(`/api/database-logs/${vehicleId}?${params}`);
+      if (key !== requestKeyRef.current) return;
       const newRows = res.data;
       if (!Array.isArray(newRows) || newRows.length === 0) {
         setHasMore(false);
@@ -346,11 +357,12 @@ export default function DatabaseLogs() {
       const more = res.headers["x-has-more"];
       setHasMore(more === "true" || (!more && newRows.length === 200));
     } catch (err) {
+      if (key !== requestKeyRef.current) return;
       console.error("Fetch error:", err);
       setError(err.message || "Failed to load data");
       if (reset) setRows([]);
     } finally {
-      setLoading(false);
+      if (key === requestKeyRef.current) setLoading(false);
     }
   }, [vehicleId, selectedDate, cursor, loading, hasMore]);
 
@@ -530,6 +542,7 @@ export default function DatabaseLogs() {
 
   /* ========================= EFFECTS ========================= */
   useEffect(() => {
+    requestKeyRef.current = `${vehicleId}:${selectedDate}`;
     setRows([]);
     setCursor(null);
     setHasMore(true);

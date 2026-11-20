@@ -28,7 +28,14 @@ export default function MotorFaults() {
   const [selectedCodes, setSelectedCodes] = useState(new Set());
 
   /* ========================= FETCH ========================= */
+  // Guards against a stale response landing after a newer one — without
+  // this, switching vehicles (e.g. via the jump dropdown) before a request
+  // resolves could have an older vehicle's slower-to-arrive response
+  // overwrite a newer vehicle's already-correct fault log. Previously
+  // masked by every vehicle switch fully remounting this component;
+  // no longer true now that navigation preserves state.
   useEffect(() => {
+    let cancelled = false;
     const fetchFaults = async () => {
       try {
         setLoading(true);
@@ -38,15 +45,17 @@ export default function MotorFaults() {
           : `/api/faults/${id}?days=30`;
 
         const { data: rows } = await axios.get(url);
+        if (cancelled) return;
         setLogs(rows || []);
       } catch (err) {
-        setError(err.message);
+        if (!cancelled) setError(err.message);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     if (id) fetchFaults();
+    return () => { cancelled = true; };
   }, [id, selectedDate]);
 
   /* ========================= HELPERS ========================= */
