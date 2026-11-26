@@ -116,6 +116,7 @@ function ModernBatteryAnalytics() {
         maxPackTemp: row.max_pack_temp_c != null ? Number(row.max_pack_temp_c) : null,
         minPackTemp: row.min_pack_temp_c != null ? Number(row.min_pack_temp_c) : null,
         soc: row.max_soc_percent != null ? Number(row.max_soc_percent) : null,
+        minSoc: row.min_soc_percent != null ? Number(row.min_soc_percent) : null,
       };
     });
   }, [hourly]);
@@ -225,9 +226,18 @@ function ModernBatteryAnalytics() {
             />
           </ChartCard>
 
-          <ChartCard title="State of Charge (SOC)" subtitle="Daily max over the last 30 days">
+          <ChartCard title="Maximum SOC" subtitle="Daily max over the last 30 days">
             <TrendChart
               data={chartData.map(d => ({ day: d.day, y: Number(d.max_soc_percent ?? 0) }))}
+              xKey="day"
+              palette={PALETTE.emerald}
+              unit="%"
+            />
+          </ChartCard>
+
+          <ChartCard title="Minimum SOC" subtitle="Daily minimum over the last 30 days">
+            <TrendChart
+              data={chartData.map(d => ({ day: d.day, y: Number(d.min_soc_percent ?? 0) }))}
               xKey="day"
               palette={PALETTE.emerald}
               unit="%"
@@ -266,11 +276,19 @@ function ModernBatteryAnalytics() {
             )}
           </ChartCard>
 
-          <ChartCard title="State of Charge (SOC)" subtitle={`Hour by hour on ${selectedDate}`}>
+          <ChartCard title="Maximum SOC" subtitle={`Hour by hour on ${selectedDate}`}>
             {hourlyLoading ? (
               <div className="h-48 flex items-center justify-center text-gray-500 text-sm">Loading…</div>
             ) : (
               <TrendChart data={hourlyChartData} xKey="hour" yKey="soc" palette={PALETTE.emerald} unit="%" />
+            )}
+          </ChartCard>
+
+          <ChartCard title="Minimum SOC" subtitle={`Hour by hour on ${selectedDate}`}>
+            {hourlyLoading ? (
+              <div className="h-48 flex items-center justify-center text-gray-500 text-sm">Loading…</div>
+            ) : (
+              <TrendChart data={hourlyChartData} xKey="hour" yKey="minSoc" palette={PALETTE.emerald} unit="%" />
             )}
           </ChartCard>
 
