@@ -268,14 +268,6 @@ function ModernBatteryAnalytics() {
 
       {selectedDate && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <ChartCard title="DC Current" subtitle={`Hour by hour on ${selectedDate}`}>
-            {hourlyLoading ? (
-              <div className="h-48 flex items-center justify-center text-gray-500 text-sm">Loading…</div>
-            ) : (
-              <TrendChart data={hourlyChartData} xKey="hour" yKey="current" palette={PALETTE.sky} unit="A" />
-            )}
-          </ChartCard>
-
           <ChartCard title="Maximum SOC" subtitle={`Hour by hour on ${selectedDate}`}>
             {hourlyLoading ? (
               <div className="h-48 flex items-center justify-center text-gray-500 text-sm">Loading…</div>
@@ -289,6 +281,14 @@ function ModernBatteryAnalytics() {
               <div className="h-48 flex items-center justify-center text-gray-500 text-sm">Loading…</div>
             ) : (
               <TrendChart data={hourlyChartData} xKey="hour" yKey="minSoc" palette={PALETTE.emerald} unit="%" />
+            )}
+          </ChartCard>
+
+          <ChartCard title="DC Current" subtitle={`Hour by hour on ${selectedDate}`}>
+            {hourlyLoading ? (
+              <div className="h-48 flex items-center justify-center text-gray-500 text-sm">Loading…</div>
+            ) : (
+              <TrendChart data={hourlyChartData} xKey="hour" yKey="current" palette={PALETTE.sky} unit="A" />
             )}
           </ChartCard>
 
